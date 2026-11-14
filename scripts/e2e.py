@@ -11,6 +11,7 @@ if installed_mode:cases=cases[:4]
 cases += [('guard-user-path','/Users/example/Code/project\n/home/example/src/project',True),('guard-user-path-sensitive','/Users/example/Code/project 203.0.113.17',True)]
 cases += [('guard-email','Author: Example <person@example.invalid>\nCo-authored-by: Example Bot <bot@example.invalid>',True),('guard-email-sensitive','person@example.invalid password=SYNTHETIC_SECRET',True)]
 cases += [('guard-local-network','127.0.0.1 10.23.45.67 172.20.0.5 192.168.50.1 100.64.0.1 198.18.1.7 0.0.0.0 ::1 fd00::1 fe80::1%en0 ::ffff:192.168.50.1',True),('guard-local-network-public','127.0.0.1 192.168.50.1 ::ffff:203.0.113.17',True),('guard-local-network-secret','127.0.0.1 password=SYNTHETIC_SECRET',True)]
+cases += [('guard-type-declaration','public var secret: Bool = false\nlet password: String\nconst token: string;',True),('guard-typed-password','let password: String = "SYNTHETIC_PASSWORD"',True),('guard-declaration-token','public var secret: Bool = false\nconst token: string = "SYNTHETIC_TOKEN"',True),('guard-data-type-word','{"secret":"Bool"}',True)]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -38,6 +39,7 @@ for name,output,guard in cases:
   env={'PATH':os.environ['PATH'],'HOME':str(home),'CLAUDE_CONFIG_DIR':str(home/'config'),'ANTHROPIC_API_KEY':'synthetic-local-only','ANTHROPIC_BASE_URL':f'http://127.0.0.1:{server.server_port}','DISABLE_TELEMETRY':'1','DISABLE_ERROR_REPORTING':'1','CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC':'1'}
   prompt='项目根目录：/Users/example/Code/project 分支 claude/fixture-branch 检查工作进展' if name.startswith('guard-user-path') else 'Run the fixture command.'
   if name.startswith('guard-local-network'):prompt='Check local service 127.0.0.1 and 192.168.50.1'
+  if name=='guard-type-declaration':prompt='Explain public var secret: Bool = false'
   if name.startswith('guard-email'):prompt='Find commits by person@example.invalid'
   args=[CLAUDE,'-p',prompt,'--no-session-persistence','--setting-sources','','--dangerously-skip-permissions','--tools','Bash','--model','claude-sonnet-4-6','--max-turns','3']
   if guard and installed_mode:
@@ -74,4 +76,4 @@ assert report[2].get('requests',0)>=2 and report[2].get('exit')==0, 'Clean path 
 
 for row in report[3:]:
  # Strict-context case records an EXPECTED COMPATIBILITY FAILURE, not clean-path success.
- assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network'] else 1) and row.get('exit')==0, row['case']
+ assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration'] else 1) and row.get('exit')==0, row['case']

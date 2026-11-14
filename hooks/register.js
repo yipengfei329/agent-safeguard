@@ -16,7 +16,7 @@ export function register(on){
     ready = true;
     return next(e);
   }).catch(()=>{blocked=true;ready=false;lastRule='initialization.failed';lastEvent='session.start';return {};});
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.5',ready,blocked,lastEvent,ruleVersion:engine.version,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.6',ready,blocked,lastEvent,ruleVersion:engine.version,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('turn.start',async ($,e,next)=>{if(!e.agentId)turnId=e.turnId;return next(e);});
   on('tool.call',async ($,e,next)=>{
     if(!ready||blocked)return deny();
