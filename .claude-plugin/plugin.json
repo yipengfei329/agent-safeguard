@@ -1,0 +1,10 @@
+{
+  "name": "agent-safeguard",
+  "version": "0.1.5",
+  "description": "Experimental local tool result privacy guard",
+  "author": {
+    "name": "Agent Safeguard contributors"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/yipengfei329/agent-safeguard"
+}

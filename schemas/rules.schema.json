@@ -1,0 +1,259 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Agent Safeguard rules v1",
+  "description": "Locally validated rule configuration; CIDR ranges are compiled at load time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "ruleSetVersion",
+    "policy",
+    "limits",
+    "rules"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "ruleSetVersion": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "onMatch",
+        "onInspectionFailure",
+        "onUnsupportedContent"
+      ],
+      "properties": {
+        "onMatch": {
+          "const": "withhold-and-stop-turn"
+        },
+        "onInspectionFailure": {
+          "const": "block"
+        },
+        "onUnsupportedContent": {
+          "const": "block"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxTextBytes",
+        "maxDepth",
+        "maxNodes",
+        "maxNestedJsonDecodes",
+        "maxRules",
+        "maxMatchValues"
+      ],
+      "properties": {
+        "maxTextBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4194304
+        },
+        "maxDepth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "maxNodes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000
+        },
+        "maxNestedJsonDecodes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2
+        },
+        "maxRules": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "maxMatchValues": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2000,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "values": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10000,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "enabled",
+        "sources",
+        "action",
+        "detector"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.-]{0,79}$"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "tool.input",
+              "tool.result",
+              "prompt.context",
+              "user.prompt"
+            ]
+          }
+        },
+        "tools": {
+          "description": "Optional exact tool names, not patterns; valid only for tool sources.",
+          "$ref": "#/$defs/values"
+        },
+        "action": {
+          "enum": [
+            "block",
+            "observe"
+          ]
+        },
+        "detector": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "mode"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ip"
+                },
+                "mode": {
+                  "const": "any"
+                },
+                "excludeCidrs": {
+                  "$ref": "#/$defs/values",
+                  "description": "Exclude only matching IP addresses from this rule; other addresses and rules are still checked."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "mode",
+                "cidrs"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ip"
+                },
+                "mode": {
+                  "const": "cidr"
+                },
+                "cidrs": {
+                  "$ref": "#/$defs/values"
+                },
+                "excludeCidrs": {
+                  "$ref": "#/$defs/values",
+                  "description": "Exclude only matching IP addresses from this rule; other addresses and rules are still checked."
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "values",
+                "caseSensitive"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "exact"
+                },
+                "values": {
+                  "$ref": "#/$defs/values"
+                },
+                "caseSensitive": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "suffixes"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "domain"
+                },
+                "suffixes": {
+                  "$ref": "#/$defs/values"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "name"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "builtin"
+                },
+                "name": {
+                  "enum": [
+                    "credentials",
+                    "device-identifiers",
+                    "personal-environment"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "$schema": "../schemas/rules.schema.json",
+  "schemaVersion": 1,
+  "ruleSetVersion": "0.1.4",
+  "policy": {
+    "onMatch": "withhold-and-stop-turn",
+    "onInspectionFailure": "block",
+    "onUnsupportedContent": "block"
+  },
+  "limits": {
+    "maxTextBytes": 4194304,
+    "maxDepth": 64,
+    "maxNodes": 100000,
+    "maxNestedJsonDecodes": 2,
+    "maxRules": 2000,
+    "maxMatchValues": 10000
+  },
+  "rules": [
+    {
+      "id": "network.address",
+      "enabled": true,
+      "sources": [
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "ip",
+        "mode": "any",
+        "excludeCidrs": [
+          "0.0.0.0/32",
+          "10.0.0.0/8",
+          "100.64.0.0/10",
+          "127.0.0.0/8",
+          "169.254.0.0/16",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "198.18.0.0/15",
+          "255.255.255.255/32",
+          "::/128",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ]
+      }
+    },
+    {
+      "id": "identity.device",
+      "enabled": true,
+      "sources": [
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "builtin",
+        "name": "device-identifiers"
+      }
+    },
+    {
+      "id": "identity.environment",
+      "enabled": true,
+      "sources": [
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "builtin",
+        "name": "personal-environment"
+      }
+    },
+    {
+      "id": "security.credentials",
+      "enabled": true,
+      "sources": [
+        "tool.input",
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "builtin",
+        "name": "credentials"
+      }
+    },
+    {
+      "id": "personal.synthetic-value",
+      "enabled": true,
+      "sources": [
+        "tool.input",
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "exact",
+        "values": [
+          "SYNTHETIC_DEVICE_ID_0001"
+        ],
+        "caseSensitive": true
+      }
+    },
+    {
+      "id": "personal.synthetic-domain",
+      "enabled": true,
+      "sources": [
+        "tool.result",
+        "prompt.context",
+        "user.prompt"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "domain",
+        "suffixes": [
+          "private.example.invalid"
+        ]
+      }
+    },
+    {
+      "id": "personal.synthetic-subnet",
+      "enabled": false,
+      "sources": [
+        "tool.result"
+      ],
+      "action": "block",
+      "detector": {
+        "kind": "ip",
+        "mode": "cidr",
+        "cidrs": [
+          "203.0.113.0/24",
+          "2001:db8::/32"
+        ]
+      }
+    }
+  ]
+}

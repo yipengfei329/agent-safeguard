@@ -1,0 +1,40 @@
+{
+  "name": "agent-safeguard",
+  "version": "0.1.5",
+  "private": true,
+  "description": "Local sensitive information protection for coding agents; Claude Code adapter",
+  "type": "module",
+  "dependencies": {
+    "ajv": "^8.20.0",
+    "ipaddr.js": "^2.5.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test tests/core.test.mjs",
+    "test:mods": "claude plugin test .",
+    "bench": "node benchmarks/scan.mjs",
+    "validate": "claude plugin validate .",
+    "test:e2e": "python3 scripts/e2e.py",
+    "rules": "node scripts/rules.mjs",
+    "start": "node bin/agent-safeguard.mjs",
+    "install:user": "npm run build && node scripts/install-user.mjs"
+  },
+  "bin": {
+    "agent-safeguard": "bin/agent-safeguard.mjs"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yipengfei329/agent-safeguard.git"
+  },
+  "homepage": "https://github.com/yipengfei329/agent-safeguard#readme",
+  "bugs": {
+    "url": "https://github.com/yipengfei329/agent-safeguard/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

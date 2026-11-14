@@ -1,0 +1,77 @@
+"""Synthetic local Messages API recorder; no account credentials are inherited."""
+import http.server,threading,json,tempfile,pathlib,subprocess,os,shutil,base64
+ROOT=pathlib.Path(__file__).resolve().parent.parent
+CLAUDE=os.environ.get('SAFEGUARD_CLAUDE_BIN') or shutil.which('claude')
+report=[]
+installed_mode=os.environ.get("SAFEGUARD_TEST_INSTALLED")=="1"
+cases=[('control-sensitive','203.0.113.17',False),('guard-sensitive','203.0.113.17',True),('guard-clean','BUILD_OK',True),('guard-stderr','203.0.113.17',True),('strict-context-compatibility-block','BUILD_OK',True)]
+for fixture in json.loads((ROOT/'fixtures/replays.json').read_text()):
+ if fixture['block'] and fixture['name']!='未知图片':cases.append(('replay-'+fixture['name'],json.dumps(fixture['value'],ensure_ascii=False),True))
+if installed_mode:cases=cases[:4]
+cases += [('guard-user-path','/Users/example/Code/project\n/home/example/src/project',True),('guard-user-path-sensitive','/Users/example/Code/project 203.0.113.17',True)]
+cases += [('guard-email','Author: Example <person@example.invalid>\nCo-authored-by: Example Bot <bot@example.invalid>',True),('guard-email-sensitive','person@example.invalid password=SYNTHETIC_SECRET',True)]
+cases += [('guard-local-network','127.0.0.1 10.23.45.67 172.20.0.5 192.168.50.1 100.64.0.1 198.18.1.7 0.0.0.0 ::1 fd00::1 fe80::1%en0 ::ffff:192.168.50.1',True),('guard-local-network-public','127.0.0.1 192.168.50.1 ::ffff:203.0.113.17',True),('guard-local-network-secret','127.0.0.1 password=SYNTHETIC_SECRET',True)]
+for name,output,guard in cases:
+ with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
+  base=pathlib.Path(tmp);requests=[]
+  class Handler(http.server.BaseHTTPRequestHandler):
+   def log_message(self,*args):pass
+   def do_POST(self):
+    data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
+    has_result=any(isinstance(m.get('content'),list) and any(b.get('type')=='tool_result' for b in m['content']) for m in data.get('messages',[]))
+    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name=="guard-stderr" else ""),'description':'Synthetic fixture'}}]
+    message={'id':'msg_fixture','type':'message','role':'assistant','model':data.get('model','test'),'content':blocks,'stop_reason':'end_turn' if has_result else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
+    if data.get('stream'):
+     events=[('message_start',{'type':'message_start','message':{**message,'content':[],'stop_reason':None}})]
+     for i,b in enumerate(blocks):
+      start={**b};start['text']='' if b['type']=='text' else start.get('text','');
+      if b['type']=='tool_use':start.pop('text',None);start['input']={}
+      events.append(('content_block_start',{'type':'content_block_start','index':i,'content_block':start}))
+      delta={'type':'text_delta','text':b['text']} if b['type']=='text' else {'type':'input_json_delta','partial_json':json.dumps(b['input'])}
+      events.extend([('content_block_delta',{'type':'content_block_delta','index':i,'delta':delta}),('content_block_stop',{'type':'content_block_stop','index':i})])
+     events.extend([('message_delta',{'type':'message_delta','delta':{'stop_reason':message['stop_reason'],'stop_sequence':None},'usage':{'output_tokens':10}}),('message_stop',{'type':'message_stop'})])
+     body=''.join('event: '+event+'\ndata: '+json.dumps(d)+'\n\n' for event,d in events).encode();ctype='text/event-stream'
+    else:body=json.dumps(message).encode();ctype='application/json'
+    self.send_response(200);self.send_header('Content-Type',ctype);self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+  server=http.server.ThreadingHTTPServer(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start()
+  home=base/'home';home.mkdir();work=base/'work';work.mkdir()
+  env={'PATH':os.environ['PATH'],'HOME':str(home),'CLAUDE_CONFIG_DIR':str(home/'config'),'ANTHROPIC_API_KEY':'synthetic-local-only','ANTHROPIC_BASE_URL':f'http://127.0.0.1:{server.server_port}','DISABLE_TELEMETRY':'1','DISABLE_ERROR_REPORTING':'1','CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC':'1'}
+  prompt='项目根目录：/Users/example/Code/project 分支 claude/fixture-branch 检查工作进展' if name.startswith('guard-user-path') else 'Run the fixture command.'
+  if name.startswith('guard-local-network'):prompt='Check local service 127.0.0.1 and 192.168.50.1'
+  if name.startswith('guard-email'):prompt='Find commits by person@example.invalid'
+  args=[CLAUDE,'-p',prompt,'--no-session-persistence','--setting-sources','','--dangerously-skip-permissions','--tools','Bash','--model','claude-sonnet-4-6','--max-turns','3']
+  if guard and installed_mode:
+   userroot=pathlib.Path.home()/'.claude';testroot=home/'config';(testroot/'plugins').mkdir(parents=True)
+   settings=json.loads((userroot/'settings.json').read_text())
+   settings={k:settings[k] for k in ['enabledPlugins','extraKnownMarketplaces'] if k in settings}
+   settings['enabledPlugins']={'agent-safeguard@agent-safeguard-local':True}
+   if 'extraKnownMarketplaces' in settings:settings['extraKnownMarketplaces']={k:v for k,v in settings['extraKnownMarketplaces'].items() if k=='agent-safeguard-local'}
+   (testroot/'settings.json').write_text(json.dumps(settings))
+   registry=json.loads((userroot/'plugins/installed_plugins.json').read_text());registry['plugins']={'agent-safeguard@agent-safeguard-local':registry['plugins']['agent-safeguard@agent-safeguard-local']}
+   (testroot/'plugins/installed_plugins.json').write_text(json.dumps(registry))
+   markets=json.loads((userroot/'plugins/known_marketplaces.json').read_text());(testroot/'plugins/known_marketplaces.json').write_text(json.dumps({'agent-safeguard-local':markets['agent-safeguard-local']}))
+   args[args.index('--setting-sources')+1]='user'
+  elif guard:
+   plugin=base/'plugin';plugin.mkdir()
+   for directory in ['hooks','dist','.claude-plugin']:shutil.copytree(ROOT/directory,plugin/directory)
+   (plugin/'local').mkdir();cfg=json.loads((ROOT/'config/rules.example.json').read_text())
+   # Isolate tool-result interception; context policy tested separately with native harness.
+   if name!='strict-context-compatibility-block':
+    for rule in cfg['rules']:rule['sources']=[s for s in rule['sources'] if s.startswith('tool.')]
+   (plugin/'local/rules.json').write_text(json.dumps(cfg));args+=['--plugin-dir',str(plugin)]
+  try:
+   p=subprocess.run(args,env=env,cwd=work,capture_output=True,text=True,timeout=40)
+   leaked=any('203.0.113.17' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')
+   report.append({'case':name,'requests':len(requests),'sensitive_in_user_payload':leaked,'exit':p.returncode,'stdout_tail':p.stdout[-300:],'stderr_tail':p.stderr[-300:]})
+  except subprocess.TimeoutExpired:report.append({'case':name,'requests':len(requests),'timeout':True})
+  finally:server.shutdown()
+print(json.dumps(report,indent=2))
+(ROOT/'benchmarks/results').mkdir(exist_ok=True)
+(ROOT/('benchmarks/results/installed-e2e.json' if installed_mode else 'benchmarks/results/e2e.json')).write_text(json.dumps(report,indent=2))
+assert report[0].get('sensitive_in_user_payload'), 'Control must demonstrate actual sensitive tool-result submission'
+assert report[1].get('requests')==1 and not report[1].get('sensitive_in_user_payload'), 'Guard must stop follow-up request'
+assert report[2].get('requests',0)>=2 and report[2].get('exit')==0, 'Clean path must continue'
+
+for row in report[3:]:
+ # Strict-context case records an EXPECTED COMPATIBILITY FAILURE, not clean-path success.
+ assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network'] else 1) and row.get('exit')==0, row['case']

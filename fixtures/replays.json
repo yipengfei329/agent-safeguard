@@ -1,0 +1,190 @@
+[
+  {
+    "name": "STUN公网IPv4",
+    "value": {
+      "stdout": "Mapped address: 203.0.113.17:45123"
+    },
+    "block": true
+  },
+  {
+    "name": "SSH日志来源地址",
+    "value": {
+      "stdout": "Accepted publickey from 198.51.100.9 port 2222"
+    },
+    "block": true
+  },
+  {
+    "name": "网卡IPv6",
+    "value": "inet6 2001:db8:abcd::7 prefixlen 64",
+    "block": true
+  },
+  {
+    "name": "接口zone",
+    "value": "inet6 fe80::1%en0",
+    "block": false
+  },
+  {
+    "name": "内网网关",
+    "value": "default via 192.168.50.1",
+    "block": false
+  },
+  {
+    "name": "FakeIP代理地址",
+    "value": "198.18.1.7",
+    "block": false
+  },
+  {
+    "name": "工具错误返回",
+    "value": {
+      "isError": true,
+      "stderr": "connect 203.0.113.17 failed"
+    },
+    "block": true
+  },
+  {
+    "name": "MCP嵌套结果",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"wifi\":{\"address\":\"203.0.113.21\"}}"
+        }
+      ]
+    },
+    "block": true
+  },
+  {
+    "name": "跨代理会话转述",
+    "value": {
+      "messages": [
+        {
+          "analysis": "Probe found 2001:db8::9"
+        }
+      ]
+    },
+    "block": true
+  },
+  {
+    "name": "设备序列号字段",
+    "value": {
+      "serialNumber": "SYNTHETIC12345"
+    },
+    "block": true
+  },
+  {
+    "name": "设备UDID",
+    "value": "UDID: 00000000-1111111122223333",
+    "block": true
+  },
+  {
+    "name": "网卡MAC",
+    "value": "ether aa:bb:cc:dd:ee:ff",
+    "block": true
+  },
+  {
+    "name": "用户名路径",
+    "value": "/Users/example-user/Code/project",
+    "block": false
+  },
+  {
+    "name": "git作者邮箱",
+    "value": "Author: Example <person@example.invalid>",
+    "block": false
+  },
+  {
+    "name": "代理密码",
+    "value": {
+      "password": "SYNTHETIC_SECRET"
+    },
+    "block": true
+  },
+  {
+    "name": "代理认证URL",
+    "value": "socks5://example:synthetic@proxy.example.invalid:1000",
+    "block": true
+  },
+  {
+    "name": "ANSI分隔地址",
+    "value": "203.0.\u001b[31m113.7",
+    "block": true
+  },
+  {
+    "name": "Unicode转义",
+    "value": "203.0.\\u0031\\u0031\\u0033.7",
+    "block": true
+  },
+  {
+    "name": "个人域名子域",
+    "value": "https://nas.private.example.invalid",
+    "block": true
+  },
+  {
+    "name": "未知图片",
+    "value": {
+      "type": "image",
+      "source": {
+        "data": "synthetic"
+      }
+    },
+    "block": true
+  },
+  {
+    "name": "干净编译输出",
+    "value": {
+      "stdout": "Build completed. 42 tests passed",
+      "stderr": "",
+      "exitCode": 0
+    },
+    "block": false
+  },
+  {
+    "name": "软件名称不是身份",
+    "value": "macOS zsh Surge version 2.1.312",
+    "block": false
+  },
+  {
+    "name": "普通UUID",
+    "value": "550e8400-e29b-41d4-a716-446655440000",
+    "block": false
+  },
+  {
+    "name": "凭据字段说明",
+    "value": "Set the password field in your local configuration.",
+    "block": false
+  },
+  {
+    "name": "相似域名不匹配",
+    "value": "notprivate.example.invalid",
+    "block": false
+  },
+  {
+    "name": "Linux用户路径",
+    "value": "/home/example-user/src/project",
+    "block": false
+  },
+  {
+    "name": "路径与高风险IP同时出现",
+    "value": "/Users/example/project: connected to 203.0.113.7",
+    "block": true
+  },
+  {
+    "name": "路径与凭据同时出现",
+    "value": "/home/example/project password=SYNTHETIC_SECRET",
+    "block": true
+  },
+  {
+    "name": "主机名字段仍阻断",
+    "value": "ComputerName = ExampleMac",
+    "block": true
+  },
+  {
+    "name": "Git共同作者邮箱",
+    "value": "Co-authored-by: Example Bot <bot@example.invalid>",
+    "block": false
+  },
+  {
+    "name": "邮箱和凭据混合",
+    "value": "contact: person@example.invalid password=SYNTHETIC_SECRET",
+    "block": true
+  }
+]

@@ -1,0 +1,21 @@
+.DS_Store
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+local/
+.claude/settings.local.json
+benchmarks/results/
+
+# Local sessions, credentials and editor state
+.claude/
+.codex/
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+__pycache__/
