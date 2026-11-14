@@ -9,6 +9,9 @@ coverage/
 local/
 .claude/settings.local.json
 benchmarks/results/
+desktop/target/
+desktop/artifacts/
+desktop/resources/core.mjs
 
 # Local sessions, credentials and editor state
 .claude/

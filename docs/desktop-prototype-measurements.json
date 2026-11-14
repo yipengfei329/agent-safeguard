@@ -1,0 +1,584 @@
+{
+  "measurement_date": "2026-11-14",
+  "package": {
+    "executable_bytes": 16165856,
+    "app_logical_bytes": 21919091,
+    "zip_bytes": 6868181,
+    "dmg_bytes": 8053855,
+    "signing": "ad-hoc; not notarized",
+    "node_bundled": false,
+    "external_node_required_for": "rule validation/save/rollback only"
+  },
+  "platform": {
+    "os": "macOS",
+    "version": "27.2",
+    "architecture": "arm64"
+  },
+  "mode": "Release app executable; synthetic demo; no harness probe; local process spawn, not Finder/Gatekeeper",
+  "startup_marker": "callback scheduled during initial render; subsequent frame callback, not measured display scanout or input latency",
+  "cache": "first observed launch reported separately; OS/font/shader caches not flushed, NOT cold boot",
+  "launches": [
+    {
+      "spawn_to_callback_ms": 597.487,
+      "first_frame_callback_ms": 589.033
+    },
+    {
+      "spawn_to_callback_ms": 441.112,
+      "first_frame_callback_ms": 432.838
+    },
+    {
+      "spawn_to_callback_ms": 356.32,
+      "first_frame_callback_ms": 343.846
+    },
+    {
+      "spawn_to_callback_ms": 369.698,
+      "first_frame_callback_ms": 354.156
+    },
+    {
+      "spawn_to_callback_ms": 387.511,
+      "first_frame_callback_ms": 373.756
+    },
+    {
+      "spawn_to_callback_ms": 377.65,
+      "first_frame_callback_ms": 364.521
+    },
+    {
+      "spawn_to_callback_ms": 361.075,
+      "first_frame_callback_ms": 348.378
+    },
+    {
+      "spawn_to_callback_ms": 357.951,
+      "first_frame_callback_ms": 345.179
+    },
+    {
+      "spawn_to_callback_ms": 372.488,
+      "first_frame_callback_ms": 358.474
+    },
+    {
+      "spawn_to_callback_ms": 365.224,
+      "first_frame_callback_ms": 352.617
+    },
+    {
+      "spawn_to_callback_ms": 386.948,
+      "first_frame_callback_ms": 376.284
+    },
+    {
+      "spawn_to_callback_ms": 359.523,
+      "first_frame_callback_ms": 349.558
+    },
+    {
+      "spawn_to_callback_ms": 378.724,
+      "first_frame_callback_ms": 365.342
+    },
+    {
+      "spawn_to_callback_ms": 388.215,
+      "first_frame_callback_ms": 370.675
+    },
+    {
+      "spawn_to_callback_ms": 380.364,
+      "first_frame_callback_ms": 364.406
+    },
+    {
+      "spawn_to_callback_ms": 368.27,
+      "first_frame_callback_ms": 355.289
+    },
+    {
+      "spawn_to_callback_ms": 382.802,
+      "first_frame_callback_ms": 367.032
+    },
+    {
+      "spawn_to_callback_ms": 366.652,
+      "first_frame_callback_ms": 358.605
+    },
+    {
+      "spawn_to_callback_ms": 379.25,
+      "first_frame_callback_ms": 370.83
+    },
+    {
+      "spawn_to_callback_ms": 371.422,
+      "first_frame_callback_ms": 358.703
+    }
+  ],
+  "startup_ms": {
+    "first_observed": 597.487,
+    "p50": 375.06899999999996,
+    "p95": 448.9307500000001,
+    "min": 356.32,
+    "max": 597.487
+  },
+  "memory": {
+    "install": {
+      "samples": [
+        {
+          "rss_mib": 114.156,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.156,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.156,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.969,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.953,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.953,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.953,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.953,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.953,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.906,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.656,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.656,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.656,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.656,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 113.578,
+      "rss_mib_max": 114.156,
+      "cpu_percent_ps_median": 0.0
+    },
+    "status": {
+      "samples": [
+        {
+          "rss_mib": 113.969,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.969,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.906,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.719,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.5,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 113.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 113.391,
+      "rss_mib_max": 113.969,
+      "cpu_percent_ps_median": 0.0
+    },
+    "rules": {
+      "samples": [
+        {
+          "rss_mib": 114.938,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.938,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.922,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.812,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.828,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.781,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.453,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.453,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.453,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.5,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 114.5,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 114.781,
+      "rss_mib_max": 114.938,
+      "cpu_percent_ps_median": 0.0
+    }
+  },
+  "memory_method": "ps RSS summed over app and descendants; shared pages may double-count; WindowServer/GPU allocations and transient Node rule-validation process excluded",
+  "sample_seconds_per_page": 30
+}

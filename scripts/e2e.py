@@ -12,6 +12,14 @@ cases += [('guard-user-path','/Users/example/Code/project\n/home/example/src/pro
 cases += [('guard-email','Author: Example <person@example.invalid>\nCo-authored-by: Example Bot <bot@example.invalid>',True),('guard-email-sensitive','person@example.invalid password=SYNTHETIC_SECRET',True)]
 cases += [('guard-local-network','127.0.0.1 10.23.45.67 172.20.0.5 192.168.50.1 100.64.0.1 198.18.1.7 0.0.0.0 ::1 fd00::1 fe80::1%en0 ::ffff:192.168.50.1',True),('guard-local-network-public','127.0.0.1 192.168.50.1 ::ffff:203.0.113.17',True),('guard-local-network-secret','127.0.0.1 password=SYNTHETIC_SECRET',True)]
 cases += [('guard-type-declaration','public var secret: Bool = false\nlet password: String\nconst token: string;',True),('guard-typed-password','let password: String = "SYNTHETIC_PASSWORD"',True),('guard-declaration-token','public var secret: Bool = false\nconst token: string = "SYNTHETIC_TOKEN"',True),('guard-data-type-word','{"secret":"Bool"}',True)]
+cases += [
+ ('guard-grep-command-label', 'src/fake.go:21:case "ask", "ask-secret":\nsrc/fake.go:26:item := Question{Secret: cmd == "ask-secret"}', True),
+ ('guard-code-references', 'const token = config.token;\nself.password = os.environ.get("PASSWORD")\nopts := Options{Token: config.Token, Secret: false}', True),
+ ('guard-code-adjacent-secret', 'const token = config.token; password=SYNTHETIC_PASSWORD', True),
+ ('guard-multiline-secret', 'password:\n  SYNTHETIC_PASSWORD', True),
+ ('guard-data-code-word', '{"token":"config.token"}', True),
+ ('guard-credential-stderr', 'token=SYNTHETIC_TOKEN', True),
+]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -20,7 +28,7 @@ for name,output,guard in cases:
    def do_POST(self):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     has_result=any(isinstance(m.get('content'),list) and any(b.get('type')=='tool_result' for b in m['content']) for m in data.get('messages',[]))
-    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name=="guard-stderr" else ""),'description':'Synthetic fixture'}}]
+    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-stderr","guard-credential-stderr"] else ""),'description':'Synthetic fixture'}}]
     message={'id':'msg_fixture','type':'message','role':'assistant','model':data.get('model','test'),'content':blocks,'stop_reason':'end_turn' if has_result else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     if data.get('stream'):
      events=[('message_start',{'type':'message_start','message':{**message,'content':[],'stop_reason':None}})]
@@ -75,5 +83,11 @@ assert report[1].get('requests')==1 and not report[1].get('sensitive_in_user_pay
 assert report[2].get('requests',0)>=2 and report[2].get('exit')==0, 'Clean path must continue'
 
 for row in report[3:]:
- # Strict-context case records an EXPECTED COMPATIBILITY FAILURE, not clean-path success.
- assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration'] else 1) and row.get('exit')==0, row['case']
+ # Host-generated context varies by CLI build. The unmodified 0.1.6 baseline
+ # also completes this clean probe on 2.1.325; native tests inject explicit
+ # sensitive context to verify gating deterministically. Record compatibility,
+ # never treat this probe as evidence of blanket context coverage.
+ if row['case']=='strict-context-compatibility-block':
+  assert row.get('requests') in [1,2] and row.get('exit')==0, row['case']
+  continue
+ assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references'] else 1) and row.get('exit')==0, row['case']

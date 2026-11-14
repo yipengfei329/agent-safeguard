@@ -1,0 +1,605 @@
+{
+  "platform": {
+    "os": "macOS",
+    "version": "27.2",
+    "architecture": "arm64"
+  },
+  "mode": "Release app executable; synthetic demo; no harness probe; local process spawn, not Finder/Gatekeeper",
+  "startup_marker": "callback scheduled during initial render; subsequent frame callback, not measured display scanout or input latency",
+  "cache": "first observed launch reported separately; OS/font/shader caches not flushed, NOT cold boot",
+  "launches": [
+    {
+      "spawn_to_callback_ms": 871.436,
+      "first_frame_callback_ms": 413.428
+    },
+    {
+      "spawn_to_callback_ms": 585.178,
+      "first_frame_callback_ms": 576.636
+    },
+    {
+      "spawn_to_callback_ms": 659.238,
+      "first_frame_callback_ms": 650.674
+    },
+    {
+      "spawn_to_callback_ms": 360.599,
+      "first_frame_callback_ms": 352.515
+    },
+    {
+      "spawn_to_callback_ms": 373.406,
+      "first_frame_callback_ms": 359.412
+    },
+    {
+      "spawn_to_callback_ms": 368.744,
+      "first_frame_callback_ms": 354.614
+    },
+    {
+      "spawn_to_callback_ms": 372.158,
+      "first_frame_callback_ms": 356.238
+    },
+    {
+      "spawn_to_callback_ms": 367.494,
+      "first_frame_callback_ms": 353.05
+    },
+    {
+      "spawn_to_callback_ms": 383.993,
+      "first_frame_callback_ms": 369.655
+    },
+    {
+      "spawn_to_callback_ms": 448.446,
+      "first_frame_callback_ms": 438.35
+    },
+    {
+      "spawn_to_callback_ms": 359.119,
+      "first_frame_callback_ms": 345.689
+    },
+    {
+      "spawn_to_callback_ms": 366.275,
+      "first_frame_callback_ms": 357.947
+    },
+    {
+      "spawn_to_callback_ms": 382.137,
+      "first_frame_callback_ms": 369.371
+    },
+    {
+      "spawn_to_callback_ms": 367.709,
+      "first_frame_callback_ms": 359.265
+    },
+    {
+      "spawn_to_callback_ms": 379.212,
+      "first_frame_callback_ms": 371.279
+    },
+    {
+      "spawn_to_callback_ms": 366.131,
+      "first_frame_callback_ms": 355.753
+    },
+    {
+      "spawn_to_callback_ms": 382.238,
+      "first_frame_callback_ms": 372.698
+    },
+    {
+      "spawn_to_callback_ms": 368.02,
+      "first_frame_callback_ms": 359.7
+    },
+    {
+      "spawn_to_callback_ms": 360.338,
+      "first_frame_callback_ms": 352.585
+    },
+    {
+      "spawn_to_callback_ms": 363.119,
+      "first_frame_callback_ms": 354.23
+    }
+  ],
+  "startup_ms": {
+    "first_observed": 871.436,
+    "p50": 370.451,
+    "p95": 669.8479000000002,
+    "min": 359.119,
+    "max": 871.436
+  },
+  "memory": {
+    "install": {
+      "samples": [
+        {
+          "rss_mib": 116.797,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 116.797,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 116.828,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 116.891,
+          "cpu_percent_ps": 1.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 116.922,
+          "cpu_percent_ps": 3.8,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.344,
+          "cpu_percent_ps": 1.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.344,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.266,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.281,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.281,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.109,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.062,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.062,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.156,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.188,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.297,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.297,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.297,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.297,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.516,
+          "cpu_percent_ps": 1.8,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.516,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.516,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.516,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.484,
+          "cpu_percent_ps": 2.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 117.172,
+      "rss_mib_max": 117.516,
+      "cpu_percent_ps_median": 0.0
+    },
+    "status": {
+      "samples": [
+        {
+          "rss_mib": 117.547,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.547,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.562,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.359,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.359,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.359,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.375,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.656,
+          "cpu_percent_ps": 2.3,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.672,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.672,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.672,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.766,
+          "cpu_percent_ps": 1.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.766,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.766,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.766,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.766,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.391,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.391,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.406,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.406,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.594,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 117.578,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 117.578,
+      "rss_mib_max": 117.766,
+      "cpu_percent_ps_median": 0.0
+    },
+    "rules": {
+      "samples": [
+        {
+          "rss_mib": 121.203,
+          "cpu_percent_ps": 0.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.203,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.203,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 120.984,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.172,
+          "cpu_percent_ps": 0.7,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.203,
+          "cpu_percent_ps": 1.2,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.203,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.219,
+          "cpu_percent_ps": 0.5,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.109,
+          "cpu_percent_ps": 0.5,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.047,
+          "cpu_percent_ps": 2.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.078,
+          "cpu_percent_ps": 9.2,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.078,
+          "cpu_percent_ps": 6.5,
+          "processes": 1
+        },
+        {
+          "rss_mib": 121.078,
+          "cpu_percent_ps": 1.7,
+          "processes": 1
+        },
+        {
+          "rss_mib": 122.141,
+          "cpu_percent_ps": 1.5,
+          "processes": 1
+        },
+        {
+          "rss_mib": 122.156,
+          "cpu_percent_ps": 0.6,
+          "processes": 1
+        },
+        {
+          "rss_mib": 122.156,
+          "cpu_percent_ps": 0.3,
+          "processes": 1
+        },
+        {
+          "rss_mib": 122.188,
+          "cpu_percent_ps": 10.2,
+          "processes": 1
+        },
+        {
+          "rss_mib": 122.219,
+          "cpu_percent_ps": 5.6,
+          "processes": 1
+        },
+        {
+          "rss_mib": 123.125,
+          "cpu_percent_ps": 3.1,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        },
+        {
+          "rss_mib": 0.0,
+          "cpu_percent_ps": 0.0,
+          "processes": 1
+        }
+      ],
+      "rss_mib_median": 121.078,
+      "rss_mib_max": 123.125,
+      "cpu_percent_ps_median": 0.05
+    }
+  },
+  "memory_method": "ps RSS summed over app and descendants; shared pages may double-count; WindowServer/GPU allocations excluded; rule validation uses an embedded JS runtime",
+  "sample_seconds_per_page": 30,
+  "date": "2026-11-14",
+  "desktop_version": "0.2.0",
+  "plugin_version": "0.1.7",
+  "package": {
+    "executable_bytes": 19132560,
+    "app_logical_bytes": 24948978,
+    "zip_bytes": 8318210,
+    "dmg_bytes": 9613106,
+    "signing": "ad-hoc; not notarized",
+    "node_bundled": false,
+    "external_node_required_for": null,
+    "embedded_validator": "QuickJS; same bundled detection engine"
+  },
+  "installed_plugin_flow": [
+    {
+      "case": "installed-clean",
+      "model_requests": 2,
+      "auto_status": true,
+      "heartbeat_verified": true,
+      "new_rules_loaded": false,
+      "blocked": false
+    },
+    {
+      "case": "new-session-after-save",
+      "model_requests": 1,
+      "auto_status": true,
+      "heartbeat_verified": false,
+      "new_rules_loaded": true,
+      "blocked": true
+    }
+  ]
+}

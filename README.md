@@ -4,13 +4,15 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.6，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.8，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
 
 ## 自动加载
+
+Rust + GPUI Kit 桌面端 0.2.0 已接通安装管理、自动会话状态和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
 
 安装器会安装并启用 `agent-safeguard@agent-safeguard-local`，scope 为 user。完成安装后直接运行 `claude` 即可；同机 Claude App 的本地 Code 会话按官方共享设置机制加载，无需启动器、开机服务或额外参数。已有会话需重启或新建会话后加载；没有改动运行中的会话。
 
@@ -41,6 +43,12 @@ claude plugin uninstall agent-safeguard@agent-safeguard-local --scope user
 ## 当前路径和邮箱策略
 
 用户目录路径是正常编程输入：`/Users/…` 和 `/home/…` 在提示词及工具返回中均不再单独触发拦截。邮箱地址也不再单独触发自动拦截，正常 Git 作者与共同作者信息允许通过。主机名字段、非豁免 IP、凭据和设备标识的检查保留。路径内容中的其他敏感信息仍会被检测；路径不是整条内容的放行条件。
+
+## 凭据检测（0.1.8）
+
+凭据检测区分源代码表达式与实际数据值：精确匹配字段边界，限制跨行取值，允许明确的类型声明、布尔表达式及变量引用；密码/Token 字符串、敏感结构化字段的字符串值、认证 URL、私钥与特定 Token 格式继续拦截。放行只针对当前表达式，不豁免整行、整个文件或相邻字段。
+
+每次修复须同时添加“正常代码应放行”和“相邻真实凭据应阻断”的测试。实现、限制与复测方法见 [凭据检测说明](docs/credential-detection.md)。
 
 ## 当前本机和内网 IP 策略（0.1.4）
 
