@@ -16,10 +16,10 @@ with tempfile.TemporaryDirectory(prefix='safeguard-desktop-test-') as tmp:
 import os,sys,json
 if os.environ.get('FIXTURE_FAIL'): print('SYNTHETIC_SECRET',file=sys.stderr);sys.exit(1)
 if '--version' in sys.argv: print('2.1.325 (Claude Code)')
-elif 'list' in sys.argv: print(json.dumps([{'id':'agent-safeguard@agent-safeguard-local','version':'0.1.7','enabled':True,'scope':'user'}]))
+elif 'list' in sys.argv: print(json.dumps([{'id':'agent-safeguard@agent-safeguard-local','version':os.environ['FIXTURE_PLUGIN_VERSION'],'enabled':True,'scope':'user'}]))
 else: print(json.dumps({'ok':True}))
 """);fake.chmod(0o755)
-    env={**os.environ,'PATH':str(commands)+os.pathsep+os.environ['PATH'],'HOME':str(home),'CLAUDE_CONFIG_DIR':str(home/'config')}
+    env={**os.environ,'FIXTURE_PLUGIN_VERSION':json.loads((ROOT/'.claude-plugin/plugin.json').read_text())['version'],'PATH':str(commands)+os.pathsep+os.environ['PATH'],'HOME':str(home),'CLAUDE_CONFIG_DIR':str(home/'config')}
     invoke(base,env,'install')
     plugin=base/'data/marketplace/plugins/agent-safeguard'
     rules=plugin/'local/rules.json';rules.write_text('{"fixture":"SYNTHETIC_PRIVATE_RULE"}')

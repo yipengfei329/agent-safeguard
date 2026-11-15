@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {compile} from '../dist/core.js';
+import {compile} from './strict-engine.mjs';
 import {credentialReason} from '../src/credentials.js';
 
 const clean = [

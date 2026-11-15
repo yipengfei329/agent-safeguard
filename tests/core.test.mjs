@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
-import {compile,defaults} from '../dist/core.js';
+import {compile,defaults} from './strict-engine.mjs';
 const cases=JSON.parse(readFileSync(new URL('../fixtures/replays.json',import.meta.url)));
 for(const c of cases)test(c.name,()=>assert.equal(compile().scan(c.value).blocked,c.block));
 test('尾部命中1MiB',()=>assert.equal(compile().scan('x'.repeat(1000000)+' 203.0.113.7').blocked,true));

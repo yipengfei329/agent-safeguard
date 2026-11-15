@@ -9,3 +9,6 @@ await writeFile('dist/validate.js',standalone(ajv,validate));
 await build({entryPoints:['src/core.js'],outfile:'dist/core.js',bundle:true,format:'esm',platform:'browser',target:'es2022'});
 // Same engine, embedded by the desktop validator; no separate validation implementation.
 await build({entryPoints:['src/core.js'],outfile:'dist/core.desktop.js',bundle:true,format:'iife',globalName:'SafeguardCore',platform:'browser',target:'es2022'});
+
+// Mods rejects modules over 1 MiB; keep the offline snapshot within that limit.
+if ((await readFile('dist/core.js')).length>1048576) throw Error('MODS_MODULE_LIMIT');

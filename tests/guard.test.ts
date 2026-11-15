@@ -1,7 +1,10 @@
 import {defaults} from '../dist/core.js';
-const toolProfile=JSON.parse(JSON.stringify(defaults));for(const rule of toolProfile.rules)rule.sources=rule.sources.filter(s=>s!=='prompt.context');
+const strict=JSON.parse(JSON.stringify(defaults));strict.rules[0].detector.mode='any';delete strict.rules[0].detector.country;delete strict.rules[0].detector.onUnknown;
+// Existing hook regressions retain their explicit all-address policy.
+
+const toolProfile=JSON.parse(JSON.stringify(strict));for(const rule of toolProfile.rules)rule.sources=rule.sources.filter(s=>s!=='prompt.context');
 import {test,expect} from 'claude-code/testing';
-function setup(on){on('fs.exists',()=>({value:false}));on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/work'}));on('turn.start',($,e)=>({turnId:e.turnId}));on('turn.abort',()=>({value:undefined}));}
+function setup(on){on('fs.exists',($,e)=>({value:!e.path.endsWith('desktop.json')}));on('fs.read',()=>({value:JSON.stringify(strict)}));on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/work'}));on('turn.start',($,e)=>({turnId:e.turnId}));on('turn.abort',()=>({value:undefined}));}
 async function start($){await $.session.start({cwd:'/work',surface:null,isInteractive:false});}
 async function step($){const s=$.turn.step({turnId:'t',index:1,model:'test',messageCount:2});let r=await s.next();while(!r.done)r=await s.next();return r.value;}
 test('sensitive result withheld and subsequent model dispatch never runs',async($,on)=>{setup(on);let calls=0;on('tool.call',()=>({result:{stdout:'Mapped 203.0.113.9',stderr:''}}));on('turn.step',async function*(){calls++;return {turnId:'t',index:1,answer:'sent',toolUses:[],stopReason:'end_turn',usage:null};});await start($);await $.turn.start({turnId:'t',text:'probe'});const r=await $.tool.call({tool:'Bash',command:'probe'});expect(r.deny).toBe('SAFEGUARD_BLOCKED');await step($);expect(calls).toBe(0);});

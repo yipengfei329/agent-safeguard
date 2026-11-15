@@ -1399,7 +1399,7 @@ impl Render for Desktop {
         };
         let mut body = div().v_flex().gap_4();
         if self.about {
-            body=body.child(self.panel("关于 Agent Safeguard",format!("桌面 {} · 内置插件 {} · MIT 许可。检测在本机执行，退出窗口不停止已加载插件。",env!("CARGO_PKG_VERSION"),backend::BUNDLED_VERSION),cx).child(Button::new("open-data").label("打开本地数据目录").on_click(cx.listener(|s,_,_,cx|cx.reveal_path(&s.manager.base())))));
+            body=body.child(self.panel("关于 Agent Safeguard",format!("桌面 {} · 内置插件 {} · 代码 MIT / GeoIP 数据 CC BY 4.0（DB-IP）。检测在本机执行，退出窗口不停止已加载插件。",env!("CARGO_PKG_VERSION"),backend::BUNDLED_VERSION),cx).child(Button::new("open-data").label("打开本地数据目录").on_click(cx.listener(|s,_,_,cx|cx.reveal_path(&s.manager.base())))));
         }
         if self.close_pending {
             body =

@@ -1,4 +1,5 @@
 import ipaddr from 'ipaddr.js';
+import {bundledGeoIP} from './geoip.js';
 import {hasCredentials,createAssignmentDetector} from './credentials.js';
 import validate from '../dist/validate.js';
 import defaults from '../config/rules.example.json' with {type:'json'};
@@ -26,7 +27,7 @@ function identity(text,key,name){
   return identityDetectors[name](text,key);
 }
 
-export function compile(config=defaults){
+export function compile(config=defaults,options={}){
   config=JSON.parse(JSON.stringify(config));
   if(encoder.encode(JSON.stringify(config)).length>1048576 || !validate(config)) throw Error('INVALID_RULE_CONFIG');
   const ids=new Set();let count=0;
@@ -45,8 +46,9 @@ export function compile(config=defaults){
     return {...r,detector:{...d},ranges,exclusions};
   }).filter(r=>r.enabled);
   if(count>config.limits.maxMatchValues)throw Error('VALUE_LIMIT');
+  const geo=rules.some(r=>r.detector.kind==='ip'&&r.detector.mode==='country')?(options.geoip??bundledGeoIP()):null;
   const limits={...config.limits},version=config.ruleSetVersion;
-  return {version,hasSource(source){return rules.some(r=>r.sources.includes(source));},scan(value,source='tool.result',tool=''){
+  return {version,geoip:geo?.metadata??null,hasSource(source){return rules.some(r=>r.sources.includes(source));},scan(value,source='tool.result',tool=''){
     try {
       const observed=new Set();const deadline=Date.now()+100;let operations=0;const budget=()=>{if((++operations&31)===0&&Date.now()>deadline)throw Error();};
       let bytes=0,nodes=0;const seen=new Set();const active=rules.filter(r=>r.sources.includes(source)&&(!r.tools||r.tools.includes(tool)));
@@ -56,7 +58,7 @@ export function compile(config=defaults){
         let ips;
         for(const r of active){
           budget();const d=r.detector;let hit=false;
-          if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||matchesRanges(ip,r.ranges,budget)));}
+          if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||(d.mode==='country'?geo.lookup(ip)===1:matchesRanges(ip,r.ranges,budget))));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
           if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
           if(d.kind==='builtin'){hit=d.name==='credentials'?hasCredentials(normalized,key):identity(normalized,key,d.name);}

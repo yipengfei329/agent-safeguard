@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compile,defaults} from '../dist/core.js';
+import {compile,defaults} from './strict-engine.mjs';
 const sources=['tool.input','tool.result','user.prompt','prompt.context'];
 const clean=[
  'interface Config { hostname: string; device_id: string; }',

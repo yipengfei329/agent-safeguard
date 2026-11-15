@@ -31,6 +31,10 @@ cases += [
  ('guard-array-token','{"token":["SYNTHETIC_TOKEN"]}',True),
  ('guard-number-password','{"password":123456}',True),
 ]
+# Public database probes, never contacted; no user IPs. Historical replay
+# fixtures keep the explicit any-address profile in isolated plugin copies.
+cases=[(n,v if n.startswith('replay-') else v.replace('203.0.113.17','1.0.1.7').replace('2001:db8::7','2400:3200::7'),g) for n,v,g in cases]
+cases += [('guard-geo-other','8.8.8.8',True),('guard-geo-unknown','203.0.113.17 2001:db8::7',True),('guard-geo-mixed','8.8.8.8 1.0.1.7',True)]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -78,13 +82,15 @@ for name,output,guard in cases:
    plugin=base/'plugin';plugin.mkdir()
    for directory in ['hooks','dist','.claude-plugin']:shutil.copytree(ROOT/directory,plugin/directory)
    (plugin/'local').mkdir();cfg=json.loads((ROOT/'config/rules.example.json').read_text())
+   if name.startswith('replay-'):
+    cfg['rules'][0]['detector']['mode']='any';cfg['rules'][0]['detector'].pop('country');cfg['rules'][0]['detector'].pop('onUnknown')
    # Isolate tool-result interception; context policy tested separately with native harness.
    if name!='strict-context-compatibility-block':
     for rule in cfg['rules']:rule['sources']=[s for s in rule['sources'] if s.startswith('tool.')]
    (plugin/'local/rules.json').write_text(json.dumps(cfg));args+=['--plugin-dir',str(plugin)]
   try:
    p=subprocess.run(args,env=env,cwd=work,capture_output=True,text=True,timeout=40)
-   leaked=any('203.0.113.17' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')
+   leaked=any('1.0.1.7' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')
    report.append({'case':name,'requests':len(requests),'sensitive_in_user_payload':leaked,'exit':p.returncode,'stdout_tail':p.stdout[-300:],'stderr_tail':p.stderr[-300:],'image_submitted':any('image/png' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')})
   except subprocess.TimeoutExpired:report.append({'case':name,'requests':len(requests),'timeout':True})
   finally:server.shutdown()
@@ -103,6 +109,6 @@ for row in report[3:]:
  if row['case']=='strict-context-compatibility-block':
   assert row.get('requests') in [1,2] and row.get('exit')==0, row['case']
   continue
- assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
+ assert row.get('requests')==(2 if row['case'] in ['guard-geo-other','guard-geo-unknown','guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
 
 assert next(r for r in report if r['case']=='guard-image').get('image_submitted'), 'Image must actually reach the follow-up model request'

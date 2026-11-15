@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {compile,defaults} from '../dist/core.js';
+import {compile,defaults} from './strict-engine.mjs';
 const image={type:'image',source:{type:'base64',media_type:'image/png',data:'A'.repeat(5*1024*1024)}};
 test('unsupported binary contents pass by default without decoding or counting blob bytes',()=>{
  const e=compile();

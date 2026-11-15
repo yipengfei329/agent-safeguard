@@ -21,7 +21,7 @@ with (app/'Contents/Info.plist').open('wb') as f:
 shutil.copy2(ROOT/'LICENSE',res/'LICENSE')
 # Ship dependency notices/licenses, without local paths or account identifiers.
 metadata=json.loads(subprocess.check_output([cargo,'metadata','--format-version','1','--locked'],cwd=DESKTOP))
-notices=[]
+notices=[(ROOT/'data/NOTICE.md').read_text()]
 for package in sorted(metadata['packages'],key=lambda p:p['name']):
     if package['name']=='agent-safeguard-desktop':continue
     notices.append(f"\n{package['name']} {package['version']} | {package.get('license') or 'see package license'}\n")

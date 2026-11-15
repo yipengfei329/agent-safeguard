@@ -203,6 +203,33 @@
               "additionalProperties": false,
               "required": [
                 "kind",
+                "mode",
+                "country",
+                "onUnknown"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "ip"
+                },
+                "mode": {
+                  "const": "country"
+                },
+                "country": {
+                  "const": "CN"
+                },
+                "onUnknown": {
+                  "const": "allow"
+                },
+                "excludeCidrs": {
+                  "$ref": "#/$defs/values"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
                 "values",
                 "caseSensitive"
               ],

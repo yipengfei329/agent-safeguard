@@ -119,6 +119,9 @@ pub fn builtin(r: &Value) -> Option<(&'static str, &'static str)> {
         ("identity.environment", "builtin") if r["detector"]["name"] == "personal-environment" => {
             Some(("主机名字段", "检查主机名与本机环境标识"))
         }
+        ("network.address", "ip") if r["detector"]["mode"] == "country" => {
+            Some(("中国 IP", "离线查询，仅拦截 CN；其他地区和未知地址放行"))
+        }
         ("network.address", "ip") if r["detector"]["mode"] == "any" => {
             Some(("IP 地址", "检查未豁免地址；保留当前网段豁免设置"))
         }

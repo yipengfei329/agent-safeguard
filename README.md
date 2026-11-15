@@ -4,7 +4,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.11，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.13，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
@@ -56,7 +56,11 @@ claude plugin uninstall agent-safeguard@agent-safeguard-local --scope user
 
 IPv6 匹配从 0.1.10 起要求完整结束边界，避免将 `grep -n` 输出的 `9::root`、CSS 伪元素等截成地址片段。相邻的真实地址仍会独立检测。
 
-## 当前本机和内网 IP 策略（0.1.4）
+## 当前 IP 策略（0.1.13）
+
+默认 `network.address` 使用 `mode: "country", country: "CN", onUnknown: "allow"`。HK/MO/TW 等单独地区代码不属于 CN。IPv4 与 IPv6 均离线查询，IPv4-mapped IPv6 使用内嵌 IPv4 的分类。可加载引擎中的数据库内容缺失或损坏是初始化错误，会阻断并显示 `initialization.failed`，不会伪装成未知地址。`/agent-safeguard-status` 的 `geoip` 显示数据库月份和策略。
+
+数据预编译后随插件发布，单次查询无网络、文件读取或子进程。每个插件实例首次启用国家规则时加载一次；新增规则重用索引。数据库按月更新需维护者运行 [更新脚本](scripts/update-geoip.py)、测试、发布新版，不在会话里自动下载。详情与性能见 [GeoIP 方案](docs/geoip-selection.md)。
 
 `network.address.detector.excludeCidrs` 是可迭代的网段豁免配置，加载时预编译，仅豁免当前规则中匹配的那个地址。同一内容中的其他地址、密码、设备标识和自定义精确规则仍检查。IPv4 映射的 IPv6 地址按其内嵌 IPv4 同样判断。
 
@@ -70,9 +74,9 @@ IPv6 匹配从 0.1.10 起要求完整结束边界，避免将 `grep -n` 输出�
 | 基准测试地址，兼容代理 Fake IP 使用 | `198.18.0.0/15` |
 | 未指定/监听地址、有限广播 | `0.0.0.0/32`、`::/128`、`255.255.255.255/32` |
 
-地址分类参考 [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) 和 [IANA IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/)。共享地址与基准测试地址单独列出，不混称 RFC 1918 私网。不会动态收集本机出口并加入豁免；公网出口及本机的全局 IPv6 地址仍检查。文档示例地址不默认放行，继续用于合成拦截测试。
+地址分类参考 [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) 和 [IANA IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/)。共享地址与基准测试地址单独列出，不混称 RFC 1918 私网。不会动态收集本机出口并加入豁免；公网出口及本机的全局 IPv6 地址仍检查。默认使用离线 GeoIP，仅拦截分类为 `CN` 的地址。其他地区和未知地址放行，文档示例地址因此放行；不影响同一内容中的密钥等规则。
 
-删除或调整 `excludeCidrs` 后用规则 apply 命令加载，新会话生效。旧配置没有该字段时保留原来的全部 IP 检测行为；升级程序保留用户规则；已有配置若要使用新的放行范围，需要显式合并该字段。
+删除或调整 `excludeCidrs` 后用规则 apply 命令加载，新会话生效。升级程序保留用户规则；旧 `mode: "any"` 和 `mode: "cidr"` 仍有效，不会自动被改写。已有配置需要显式把目标 IP 规则改成国家模式，并保留原有 `excludeCidrs`。
 
 ## 规则迭代
 
@@ -116,4 +120,4 @@ npm run validate
 
 ## 协议
 
-本项目采用 [MIT 协议](LICENSE)。
+项目代码采用 [MIT 协议](LICENSE)。内置 IP 国家数据由 [DB-IP](https://db-ip.com/) 提供，来自 [DB-IP Country Lite](https://db-ip.com/db/download/ip-to-country-lite)，采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。我们把国家代码缩减为 CN / 其他 / 未知，合并相邻区间后编码；插件及桌面内嵌数据同样适用该许可。数据并不能证明用户的实际位置。
