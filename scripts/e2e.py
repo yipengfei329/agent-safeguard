@@ -40,6 +40,39 @@ simulator={'deviceId':'11111111-2222-4333-8444-555555555555','platform':'iOS Sim
 simlog='UI tests failed:\n'+'\n'.join(f'{i+3}-{line}' for i,line in enumerate(json.dumps({'devices':[simulator]},indent=2).splitlines()))
 cases += [('guard-simulator-json',json.dumps({'devices':[simulator]}),True),('guard-simulator-grep',simlog,True),('guard-simulator-real',json.dumps({**simulator,'platform':'iOS'}),True),('guard-simulator-mixed',json.dumps({'devices':[simulator,{'deviceId':simulator['deviceId']}]}),True),('guard-simulator-secret',simlog+'\npassword=SYNTHETIC_PASSWORD',True),('guard-simulator-serial',json.dumps({**simulator,'serialNumber':'SYNTHETIC12345'}),True)]
 cases += [('guard-swift-expression','let r = try await call("synthetic/set", ["api_key": .string(key)])',True),('guard-unknown-expression','["api_key": .unknown_Ab7_Kd3_Xp9[factory](reference)!]',True),('guard-swift-literal','["api_key": .string("rQ7!mL2_zA9#vC4-pF8@tN6")]',True)]
+precision_code='interface Options { token: "custom-type-discriminant"; }\nconst password = "Please enter your password";\nconst secret = "AWS_SECRET_ACCESS_KEY";'
+cases += [
+ ('guard-precision-code',precision_code,True),
+ ('guard-precision-label','const token = "application/json";\nconst token = "/var/run/secrets/service-account/token";',True),
+ ('guard-precision-adjacent',precision_code+'\napi_key=rQ7!mL2_zA9#vC4-pF8@tN6',True),
+ ('guard-precision-stderr',precision_code+'\napi_key=rQ7!mL2_zA9#vC4-pF8@tN6',True),
+ ('guard-precision-comment','interface Options { /* password=rQ7!mL2_zA9#vC4-pF8@tN6 */ value: string; }',True),
+ ('guard-precision-initializer','let token: "custom-type-discriminant" = "rQ7!mL2_zA9#vC4-pF8@tN6";',True),
+ ('guard-precision-regex','function render() { const pattern = /interface Options {/; const x = { token: "rQ7!mL2_zA9#vC4-pF8@tN6" }; }',True),
+]
+boundary_clean={'guard-boundary-empty','guard-boundary-metadata','guard-boundary-reference','guard-shape-reference','guard-shape-reference-error','guard-shared-calls','guard-shared-error','guard-shared-reference','guard-shared-ui'}
+cases += [
+ ('guard-boundary-empty','PASSWORD= HOST=demo-service',True),
+ ('guard-boundary-metadata','token_count=1234567890\naccess_token_expires_at="2026-11-15T12:34:56Z"',True),
+ ('guard-boundary-reference','DB_PASSWORD="${DB_PASSWORD}"',True),
+ ('guard-boundary-prefixed','DB_PASSWORD="vD8!qZ3_nB7#sJ5-pR2@wK9"',True),
+ ('guard-boundary-template','DB_PASSWORD="vD8!qZ3_nB7#sJ5-pR2@wK9${SUFFIX}"',True),
+ ('guard-boundary-redis','redis://:xyz@cache.example.invalid',True),
+ ('guard-boundary-adjacent','PASSWORD= SERVICE_API_TOKEN=vD8!qZ3_nB7#sJ5-pR2@wK9',True),
+ ('guard-boundary-stderr','SERVICE_API_TOKEN=vD8!qZ3_nB7#sJ5-pR2@wK9',True),
+ ('guard-shape-reference','["Authorization": "<binding:credential>"]',True),
+ ('guard-shape-reference-error','["Authorization": "[source:session]"]',True),
+ ('guard-shape-material','["Authorization": "<binding:mT8!rV3_zQ7#bK5-pN2@xD9>"]',True),
+ ('guard-shape-adjacent','["Authorization": "<binding:credential>"]\nDB_PASSWORD=mT8!rV3_zQ7#bK5-pN2@xD9',True),
+ ('guard-shared-calls','    device_id = identity_service.resolve_identity(\n        payload.device_id,\n    )\n    hostname = names.resolve_host(request)',True),
+ ('guard-shared-error','device_id = identity_service.resolve_identity(',True),
+ ('guard-shared-reference','device_id = payload.device_id\nhostname = names.current_host',True),
+ ('guard-shared-ui','{"device_id":"Enter the device identifier","hostname":"<binding:host>"}',True),
+ ('guard-shared-device','device_id = identity_service.resolve_identity(\ndevice_id="SYNTHETIC456789"',True),
+ ('guard-shared-host','hostname = names.resolve_host(request)\nhostname="SyntheticHost"',True),
+ ('guard-shared-stderr','device_id = identity_service.resolve_identity(\nserialNumber="SYNTHETIC456789"',True),
+ ('guard-shared-secret','device_id = identity_service.resolve_identity(\npassword="pM8!sQ3_vL7#rD5-tN2@xK9"',True),
+]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -49,7 +82,7 @@ for name,output,guard in cases:
    def do_POST(self):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     has_result=any(isinstance(m.get('content'),list) and any(b.get('type')=='tool_result' for b in m['content']) for m in data.get('messages',[]))
-    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-stderr","guard-credential-stderr"] else ""),'description':'Synthetic fixture'}}]
+    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-stderr","guard-credential-stderr","guard-precision-stderr","guard-boundary-stderr","guard-shape-reference-error","guard-shared-error","guard-shared-stderr"] else ""),'description':'Synthetic fixture'}}]
     if name=='guard-image' and not has_result:blocks=[{'type':'tool_use','id':'tool_fixture','name':'Read','input':{'file_path':str(base/'fixture.png')}}]
     message={'id':'msg_fixture','type':'message','role':'assistant','model':data.get('model','test'),'content':blocks,'stop_reason':'end_turn' if has_result else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     if data.get('stream'):
@@ -114,6 +147,9 @@ for row in report[3:]:
  if row['case']=='strict-context-compatibility-block':
   assert row.get('requests') in [1,2] and row.get('exit')==0, row['case']
   continue
- assert row.get('requests')==(2 if row['case'] in ['guard-swift-expression','guard-unknown-expression','guard-simulator-json','guard-simulator-grep','guard-rust-types','guard-test-token','guard-data-type-word','guard-data-code-word','guard-number-password','guard-geo-other','guard-geo-unknown','guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
+ if row['case'] in boundary_clean:
+  assert row.get('requests')==2 and row.get('exit')==0, row['case']
+  continue
+ assert row.get('requests')==(2 if row['case'] in ['guard-precision-code','guard-precision-label','guard-swift-expression','guard-unknown-expression','guard-simulator-json','guard-simulator-grep','guard-rust-types','guard-test-token','guard-data-type-word','guard-data-code-word','guard-number-password','guard-geo-other','guard-geo-unknown','guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
 
 assert next(r for r in report if r['case']=='guard-image').get('image_submitted'), 'Image must actually reach the follow-up model request'

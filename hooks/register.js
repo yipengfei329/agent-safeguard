@@ -61,15 +61,15 @@ async function loadEngine($) {
   return compile(JSON.parse(raw));
 }
 export function register(on){
-  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,turnId=null,lastRule=null,initializing=null,lastEvent=null;const observed=new Set();
+  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,turnId=null,lastRule=null,lastReason=null,initializing=null,lastEvent=null;const observed=new Set();
   const lifecycle={ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
-  const report=()=>({identity:lifecycle.identity,interception,pluginVersion:'0.1.17',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
+  const report=()=>({identity:lifecycle.identity,interception,pluginVersion:'0.1.22',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
   function capture(rule,event,tool,agentId){
     if(interception)return;
     interception={at:Date.now(),ruleId:label(rule,80),event,tool:label(tool,80),agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
   }
-  function inspect(value,source,tool,agentId){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastEvent=source;capture(r.rule,source,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
-  function fail(rule,event){blocked=true;lastRule=rule;lastEvent=event;capture(rule,event);notify();}
+  function inspect(value,source,tool,agentId){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastEvent=source;capture(r.rule,source,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
+  function fail(rule,event){blocked=true;lastRule=rule;lastReason=null;lastEvent=event;capture(rule,event);notify();}
   // Existing host events supply identity; no transcript scan or title generation.
   on('classic.SessionStart',($,e,next)=>{Object.assign(lifecycle.identity,{hostSessionId:label(e.session_id,80),project:label(e.cwd,512),title:label(e.session_title),agentType:label(e.agent_type,80),model:label(e.model,80)});notify();return next(e);});
   on('classic.UserPromptSubmit',($,e,next)=>{if(e.session_title)lifecycle.identity.title=label(e.session_title);notify();return next(e);});
@@ -84,7 +84,9 @@ export function register(on){
     ready = true;notify();
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.17',ready,blocked,lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  // Reason codes contain no values. Keep them in the on-demand status only:
+  // existing desktop schema-2 readers reject unknown snapshot properties.
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.22',ready,blocked,lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,lastReason,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('turn.start',async ($,e,next)=>{if(!e.agentId)turnId=e.turnId;return next(e);});
   on('tool.call',async ($,e,next)=>{
     if(!ready||blocked)return deny();
@@ -111,5 +113,5 @@ export function register(on){
   on('prompt.attachment',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;notify();return {text:null};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.attachment');return {text:null};});
   on('agent.spawn',async ($,e,next)=>blocked||!ready?deny():next(e)).catch(()=>{blocked=true;notify();return deny();});
   on('session.compact',async ($,e,next)=>blocked||!ready?{skip:'SAFEGUARD_BLOCKED'}:next(e)).catch(()=>{blocked=true;notify();return {skip:'SAFEGUARD_BLOCKED'};});
-  on('session.end',async ($,e,next)=>{if(blocked)finalDecision={rule:lastRule,event:lastEvent};blocked=true;notify();ready=false;lastRule='session.ended';lastEvent='session.end';lifecycle.ended=true;lifecycle.finish?.();return next(e);});
+  on('session.end',async ($,e,next)=>{if(blocked)finalDecision={rule:lastRule,event:lastEvent};blocked=true;notify();ready=false;lastRule='session.ended';lastReason=null;lastEvent='session.end';lifecycle.ended=true;lifecycle.finish?.();return next(e);});
 }

@@ -1,0 +1,43 @@
+// Synthetic multi-language expressions shared by every field-based detector.
+export const assignmentFields=[
+ ['device_id','SYNTHETIC456789','identity.device'],
+ ['serialNumber','SYNTHETIC456789','identity.device'],
+ ['udid','11111111-2222-4333-8444-555555555555','identity.device'],
+ ['hostname','SyntheticHost','identity.environment'],
+ ['computername','Synthetic Computer','identity.environment'],
+ ['api_key','pM8!sQ3_vL7#rD5-tN2@xK9','security.credentials'],
+ ['password','pM8!sQ3_vL7#rD5-tN2@xK9','security.credentials'],
+];
+export const assignmentExpressions=[
+ ['call','resolve_identity()'],
+ ['open-call','identity_service.resolve_identity('],
+ ['space-call','resolve_identity (request)'],
+ ['newline-call','identity_service.resolve_identity\n('],
+ ['index','identities[request]'],
+ ['optional','identity?.value ?? fallback'],
+ ['await','await resolve_identity()'],
+ ['try-await','try await resolve_identity()'],
+ ['new','new Identity(request)'],
+ ['lambda','lambda request: resolve_identity(request)'],
+ ['ternary','primary_identity ? cached_identity : fallback_identity'],
+ ['python-conditional','primary_identity if ready else fallback_identity'],
+ ['python-or','primary_identity or fallback_identity'],
+ ['comparison','primary_identity == fallback_identity'],
+ ['null','None'],
+ ['boolean','false'],
+ ['typed-null','String'],
+ ['collection','[identity_reference]'],
+ ['object','{lookup(request)}'],
+ ['swift','.string(identity_reference)'],
+ ['swift-unknown','.custom<Identity>(identity_reference)'],
+ ['rust','Identity::from_reference(request)'],
+ ['rust-borrow','&identity_reference'],
+ ['cast','identity_reference as Identity'],
+ ['prefix-string','f"{identity_reference}"'],
+ ['python-getenv','os.environ.get("IDENTITY_REFERENCE")'],
+];
+export const expressionForms=(field,rhs)=>[
+ `${field} = ${rhs}`,`${field}: ${rhs}`,`const ${field} = ${rhs};`,
+ `    ${field} = ${rhs}`,`["${field}": ${rhs}]`,
+ `src/synthetic.py:42: ${field} = ${rhs}`,
+];

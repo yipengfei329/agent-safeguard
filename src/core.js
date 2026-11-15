@@ -1,6 +1,7 @@
 import ipaddr from 'ipaddr.js';
 import {bundledGeoIP} from './geoip.js';
-import {hasCredentials,createAssignmentDetector} from './credentials.js';
+import {credentialReason} from './credentials.js';
+import {createAssignmentDetector} from './identity-values.js';
 import {simulatorIdentifier,maskSimulatorIdentifiers} from './simulator.js';
 import validate from '../dist/validate.js';
 import defaults from '../config/rules.example.json' with {type:'json'};
@@ -21,11 +22,11 @@ function matchesRanges(ip,ranges,budget){
 }
 const identityDetectors={
   'device-identifiers':createAssignmentDetector('(?:serial(?:number| number)?|udid|hardware[ _]*uuid|device[_ -]?id)',6),
-  'personal-environment':createAssignmentDetector('(?:hostname|computername|localhostname)',1)
+  'personal-environment':createAssignmentDetector('(?:hostname|computername|localhostname)',1,'environment')
 };
-function identity(text,key,name){
-  if(name==='device-identifiers'&&/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/i.test(text))return true;
-  return identityDetectors[name](text,key);
+function identity(text,key,name,budget){
+  if(name==='device-identifiers'&&/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/i.test(text))return 'mac-format';
+  return identityDetectors[name](text,key,budget);
 }
 
 export function compile(config=defaults,options={}){
@@ -62,17 +63,17 @@ export function compile(config=defaults,options={}){
         const normalized=s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
         let ips,deviceText;
         for(const r of active){
-          budget();const d=r.detector;let hit=false;
+          budget();const d=r.detector;let hit=false,reason=null;
           if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||(d.mode==='country'?geo.lookup(ip)===1:matchesRanges(ip,r.ranges,budget))));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
           if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
           if(d.kind==='builtin'){
-            if(d.name==='credentials')hit=!hasDecoded&&hasCredentials(normalized,key);
+            if(d.name==='credentials'){if(!hasDecoded)reason=credentialReason(normalized,key,budget);hit=reason!==null;}
             else if(d.name==='device-identifiers'){
-              if(!hasDecoded&&!simulator){deviceText??=maskSimulatorIdentifiers(normalized,budget);hit=identity(deviceText,key,d.name);}
-            }else hit=identity(normalized,key,d.name);
+              if(!hasDecoded&&!simulator){deviceText??=maskSimulatorIdentifiers(normalized,budget);reason=identity(deviceText,key,d.name,budget);hit=reason!==null;}
+            }else{reason=identity(normalized,key,d.name,budget);hit=reason!==null;}
           }
-          if(hit&&r.action==='block')return {blocked:true,rule:r.id};if(hit)observed.add(r.id);
+          if(hit&&r.action==='block')return {blocked:true,rule:r.id,...(reason?{reason}:{})};if(hit)observed.add(r.id);
         }
         if(hasDecoded)return visit(decoded,1,decode+1,key);
         return null;

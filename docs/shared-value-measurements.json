@@ -1,0 +1,199 @@
+{
+  "version": "0.1.22",
+  "scope": "synthetic-grammar-matrix-not-blind-accuracy",
+  "before": [
+    {
+      "field": "device_id",
+      "cases": 156,
+      "falsePositives": 91
+    },
+    {
+      "field": "serialNumber",
+      "cases": 156,
+      "falsePositives": 91
+    },
+    {
+      "field": "udid",
+      "cases": 156,
+      "falsePositives": 91
+    },
+    {
+      "field": "hostname",
+      "cases": 156,
+      "falsePositives": 110
+    },
+    {
+      "field": "computername",
+      "cases": 156,
+      "falsePositives": 110
+    },
+    {
+      "field": "api_key",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "password",
+      "cases": 156,
+      "falsePositives": 8
+    }
+  ],
+  "after": [
+    {
+      "field": "device_id",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "serialNumber",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "udid",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "hostname",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "computername",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "api_key",
+      "cases": 156,
+      "falsePositives": 0
+    },
+    {
+      "field": "password",
+      "cases": 156,
+      "falsePositives": 0
+    }
+  ],
+  "localReplay": {
+    "beforeBlocked": true,
+    "afterBlocked": false
+  },
+  "validation": {
+    "core": 2526,
+    "native": 98,
+    "desktop": 14,
+    "installation": {
+      "version": "0.1.22",
+      "matchesBuild": true,
+      "effectiveRulesUnchanged": true
+    },
+    "installedRequests": {
+      "cases": 74,
+      "newCases": [
+        {
+          "id": "guard-shared-calls",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-error",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-reference",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-ui",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-device",
+          "requests": 1,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-host",
+          "requests": 1,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-stderr",
+          "requests": 1,
+          "exit": 0
+        },
+        {
+          "id": "guard-shared-secret",
+          "requests": 1,
+          "exit": 0
+        }
+      ]
+    }
+  },
+  "nativeLatency": [
+    {
+      "scope": "native-shared-values",
+      "bytes": 10240,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 1,
+      "p95": 1,
+      "p99": 3
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 10240,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 3,
+      "p95": 4,
+      "p99": 4
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 102400,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 5,
+      "p95": 6,
+      "p99": 6
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 102400,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 19,
+      "p95": 21,
+      "p99": 21
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 1048576,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 44,
+      "p95": 46,
+      "p99": 46
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 1048576,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 175,
+      "p95": 176,
+      "p99": 176
+    }
+  ]
+}
