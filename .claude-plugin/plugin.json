@@ -1,6 +1,6 @@
 {
   "name": "agent-safeguard",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Experimental local tool result privacy guard",
   "author": {
     "name": "Agent Safeguard contributors"

@@ -1,6 +1,7 @@
 import ipaddr from 'ipaddr.js';
 import {bundledGeoIP} from './geoip.js';
 import {hasCredentials,createAssignmentDetector} from './credentials.js';
+import {simulatorIdentifier,maskSimulatorIdentifiers} from './simulator.js';
 import validate from '../dist/validate.js';
 import defaults from '../config/rules.example.json' with {type:'json'};
 export {defaults};
@@ -52,20 +53,25 @@ export function compile(config=defaults,options={}){
     try {
       const observed=new Set();const deadline=Date.now()+100;let operations=0;const budget=()=>{if((++operations&31)===0&&Date.now()>deadline)throw Error();};
       let bytes=0,nodes=0;const seen=new Set();const active=rules.filter(r=>r.sources.includes(source)&&(!r.tools||r.tools.includes(tool)));
-      function text(s,decode=0,key=""){
+      function text(s,decode=0,key="",simulator=false){
         bytes+=encoder.encode(s).length;if(bytes>limits.maxTextBytes)throw Error();
-        // Credential evidence comes from decoded values rather than JSON escape
-        // syntax. Other rule kinds retain their existing raw-text semantics.
+        // Credential evidence and device scope come from decoded JSON values.
+        // Other rule kinds retain their existing raw-text semantics.
         let decoded,hasDecoded=false;
         if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {try{decoded=JSON.parse(s);hasDecoded=true;}catch{}}
         const normalized=s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
-        let ips;
+        let ips,deviceText;
         for(const r of active){
           budget();const d=r.detector;let hit=false;
           if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||(d.mode==='country'?geo.lookup(ip)===1:matchesRanges(ip,r.ranges,budget))));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
           if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
-          if(d.kind==='builtin'){hit=d.name==='credentials'?!hasDecoded&&hasCredentials(normalized,key):identity(normalized,key,d.name);}
+          if(d.kind==='builtin'){
+            if(d.name==='credentials')hit=!hasDecoded&&hasCredentials(normalized,key);
+            else if(d.name==='device-identifiers'){
+              if(!hasDecoded&&!simulator){deviceText??=maskSimulatorIdentifiers(normalized,budget);hit=identity(deviceText,key,d.name);}
+            }else hit=identity(normalized,key,d.name);
+          }
           if(hit&&r.action==='block')return {blocked:true,rule:r.id};if(hit)observed.add(r.id);
         }
         if(hasDecoded)return visit(decoded,1,decode+1,key);
@@ -87,7 +93,7 @@ export function compile(config=defaults,options={}){
           // and adjacent text blocks; an image must not exempt its whole result.
           if(unsupported&&['data','base64','bytes','buffer'].includes(k))continue;
           const a=text(k,decode);if(a)return a;
-          if(typeof x==='string'){if(++nodes>limits.maxNodes)throw Error();const a=text(x,decode,Array.isArray(v)?inheritedKey:k);if(a)return a;}else{const b=visit(x,depth+1,decode,Array.isArray(v)?inheritedKey:k);if(b)return b;}
+          if(typeof x==='string'){if(++nodes>limits.maxNodes)throw Error();const a=text(x,decode,Array.isArray(v)?inheritedKey:k,simulatorIdentifier(v,k,x));if(a)return a;}else{const b=visit(x,depth+1,decode,Array.isArray(v)?inheritedKey:k);if(b)return b;}
         }
         seen.delete(v);return null;
       }

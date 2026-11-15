@@ -4,7 +4,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.15，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.16，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
@@ -47,6 +47,12 @@ claude plugin uninstall agent-safeguard@agent-safeguard-local --scope user
 ## 当前路径和邮箱策略
 
 用户目录路径是正常编程输入：`/Users/…` 和 `/home/…` 在提示词及工具返回中均不再单独触发拦截。邮箱地址也不再单独触发自动拦截，正常 Git 作者与共同作者信息允许通过。主机名字段、非豁免 IP、凭据和设备标识的检查保留。路径内容中的其他敏感信息仍会被检测；路径不是整条内容的放行条件。
+
+## 模拟器设备标识（0.1.16）
+
+同一条完整设备记录中，`platform` 明确为 `iOS Simulator`、`tvOS Simulator`、`watchOS Simulator` 或 `visionOS Simulator` 时，仅对该记录的 UUID 格式 `deviceId`/`device_id`/`device-id`/`udid` 放行。支持结构化工具结果、JSON 和包含 grep 行号/上下文前缀的日志。例外不会传播到相邻设备、子对象或整个输出；序列号、硬件 UUID、MAC、主机名、凭据及其他规则继续检查。
+
+没有平台标记、只有描述里的 Simulator 字样、不完整/无法解析的记录继续按设备规则检查。这是基于工具输出元数据的判断，无法验证设备物理身份；自定义精确规则仍可拦截指定模拟器 UUID。已有会话需重新启动后加载新引擎。测试与边界见 [模拟器检测说明](docs/simulator-identifiers.md)。
 
 ## 凭据检测（0.1.15）
 

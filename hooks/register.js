@@ -63,7 +63,7 @@ async function loadEngine($) {
 export function register(on){
   let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,turnId=null,lastRule=null,initializing=null,lastEvent=null;const observed=new Set();
   const lifecycle={ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
-  const report=()=>({identity:lifecycle.identity,interception,pluginVersion:'0.1.15',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
+  const report=()=>({identity:lifecycle.identity,interception,pluginVersion:'0.1.16',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
   function capture(rule,event,tool,agentId){
     if(interception)return;
     interception={at:Date.now(),ruleId:label(rule,80),event,tool:label(tool,80),agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
@@ -84,7 +84,7 @@ export function register(on){
     ready = true;notify();
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.15',ready,blocked,lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.16',ready,blocked,lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('turn.start',async ($,e,next)=>{if(!e.agentId)turnId=e.turnId;return next(e);});
   on('tool.call',async ($,e,next)=>{
     if(!ready||blocked)return deny();

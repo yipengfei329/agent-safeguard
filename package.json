@@ -1,6 +1,6 @@
 {
   "name": "agent-safeguard",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "private": true,
   "description": "Local sensitive information protection for coding agents; Claude Code adapter",
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "npm run build && node --test tests/core.test.mjs tests/credentials.test.mjs tests/unsupported.test.mjs tests/adversarial.test.mjs tests/geoip.test.mjs tests/credential-confidence.test.mjs",
+    "test": "npm run build && node --test tests/core.test.mjs tests/credentials.test.mjs tests/unsupported.test.mjs tests/adversarial.test.mjs tests/geoip.test.mjs tests/credential-confidence.test.mjs tests/simulator.test.mjs",
     "test:mods": "claude plugin test .",
     "bench": "node benchmarks/scan.mjs",
     "validate": "claude plugin validate .",

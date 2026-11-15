@@ -36,6 +36,9 @@ cases += [
 cases=[(n,v if n.startswith('replay-') else v.replace('203.0.113.17','1.0.1.7').replace('2001:db8::7','2400:3200::7'),g) for n,v,g in cases]
 cases += [('guard-geo-other','8.8.8.8',True),('guard-geo-unknown','203.0.113.17 2001:db8::7',True),('guard-geo-mixed','8.8.8.8 1.0.1.7',True)]
 cases += [('guard-rust-types','pub api_key: String,\npub(crate) token: Option<std::sync::Arc<SecretString>>,',True),('guard-test-token','App/Push.swift:23: if token == nil, arguments.contains("-SyntheticTestApprove") { token = "simulator" }',True),('guard-rust-secret','pub api_key: String,\nlet token: Option<String> = Some("rQ7!mL2_zA9#vC4-pF8@tN6".into());',True)]
+simulator={'deviceId':'11111111-2222-4333-8444-555555555555','platform':'iOS Simulator','deviceName':'Synthetic E2E'}
+simlog='UI tests failed:\n'+'\n'.join(f'{i+3}-{line}' for i,line in enumerate(json.dumps({'devices':[simulator]},indent=2).splitlines()))
+cases += [('guard-simulator-json',json.dumps({'devices':[simulator]}),True),('guard-simulator-grep',simlog,True),('guard-simulator-real',json.dumps({**simulator,'platform':'iOS'}),True),('guard-simulator-mixed',json.dumps({'devices':[simulator,{'deviceId':simulator['deviceId']}]}),True),('guard-simulator-secret',simlog+'\npassword=SYNTHETIC_PASSWORD',True),('guard-simulator-serial',json.dumps({**simulator,'serialNumber':'SYNTHETIC12345'}),True)]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -110,6 +113,6 @@ for row in report[3:]:
  if row['case']=='strict-context-compatibility-block':
   assert row.get('requests') in [1,2] and row.get('exit')==0, row['case']
   continue
- assert row.get('requests')==(2 if row['case'] in ['guard-rust-types','guard-test-token','guard-data-type-word','guard-data-code-word','guard-number-password','guard-geo-other','guard-geo-unknown','guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
+ assert row.get('requests')==(2 if row['case'] in ['guard-simulator-json','guard-simulator-grep','guard-rust-types','guard-test-token','guard-data-type-word','guard-data-code-word','guard-number-password','guard-geo-other','guard-geo-unknown','guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
 
 assert next(r for r in report if r['case']=='guard-image').get('image_submitted'), 'Image must actually reach the follow-up model request'
