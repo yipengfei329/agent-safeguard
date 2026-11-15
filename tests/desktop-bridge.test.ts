@@ -30,3 +30,31 @@ test('status transport failure never changes detector return or leaks an error',
  expect((await $.tool.call({tool:'Bash',command:'fixture'})).result).toBe('BUILD_OK');
  const status=JSON.parse((await $.command.run({command:'agent-safeguard-status',args:''})).text);expect(status.ready).toBe(true);expect(status.blocked).toBe(false);
 });
+test('overview identity and first interception use host metadata without writing on the scan path',async($,on)=>{
+ const clock=mock.clock(on);const writes=[],reads=[];setup(on,writes,reads);
+ on('session.id',()=>({value:'00000000-0000-4000-8000-000000000123'}));
+ on('session.root',()=>({value:'/synthetic/catalog'}));on('session.model',()=>({value:'synthetic-model'}));
+ on('classic.SessionStart',()=>({}));on('classic.UserPromptSubmit',()=>({}));
+ on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));
+ await $.session.start({cwd:'/synthetic/catalog',surface:null,isInteractive:false});
+ await $.classic.SessionStart({source:'startup',session_id:'00000000-0000-4000-8000-000000000123',cwd:'/synthetic/catalog',session_title:'修复搜索排序',model:'synthetic-model'});
+ await clock.advance(1100);writes.length=0;
+ const result=await $.tool.call({tool:'Bash',command:'synthetic fixture'});
+ expect(result.deny).toBe('SAFEGUARD_BLOCKED');expect(writes.length).toBe(0);
+ await clock.advance(1100);
+ const archives=writes.filter(w=>w.path.includes('/interceptions/'));expect(archives.length).toBe(1);
+ const row=JSON.parse(archives[0].text);expect(row.schema).toBe(2);expect(row.interception.identity.title).toBe('修复搜索排序');
+ expect(row.interception.identity.project).toBe('/synthetic/catalog');expect(row.interception.ruleId).toBe('security.credentials');
+ expect(row.interception.tool).toBe('Bash');expect(row.interception.event).toBe('tool.result');expect(row.interception.at>0).toBe(true);
+ expect(JSON.stringify(writes).includes('SYNTHETIC_SECRET')).toBe(false);
+ await clock.advance(16000);expect(writes.filter(w=>w.path.includes('/interceptions/')).length).toBe(1);
+});
+test('an unresolved report write cannot hold up a clean tool result',async($,on)=>{
+ mock.clock(on);
+ on('fs.exists',()=>({value:true}));on('fs.read',($,e)=>({value:JSON.stringify(e.path.endsWith('desktop.json')?bridge:config)}));
+ let release;const held=new Promise(resolve=>{release=resolve;});
+ on('fs.write',async()=>{await held;return {value:undefined};});
+ on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/synthetic'}));on('tool.call',()=>({result:'BUILD_OK'}));
+ await $.session.start({cwd:'/synthetic',surface:null,isInteractive:false});
+ expect((await $.tool.call({tool:'Bash',command:'fixture'})).result).toBe('BUILD_OK');release();
+});

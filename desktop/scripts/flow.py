@@ -62,7 +62,13 @@ with tempfile.TemporaryDirectory(prefix='safeguard-desktop-flow-') as tmp:
     if new and (not blocked or new[0]['lastRule']=='custom.rule'):break
     time.sleep(.1)
    assert new,(name,'missing status')
-   row=new[0];assert row['ruleVersion']==json.loads(rules.read_text())['ruleSetVersion']
+   row=new[0];assert row['identity']['hostSessionId'];assert pathlib.Path(row['identity']['project']).resolve()==work.resolve(), 'project attribution mismatch'
+   if blocked:
+    assert row['interception'], {k:row[k] for k in ('schema','pluginVersion','lastRule','lastEvent','blocked','ended','interception')}
+    assert row['interception']['ruleId']=='custom.flow'
+    assert row['interception']['event']=='tool.result'
+    assert list((data/'sessions/interceptions').glob('*.json')),'missing persisted interception'
+   assert row['ruleVersion']==json.loads(rules.read_text())['ruleSetVersion']
    assert len(requests)==(1 if blocked else 2),(name,'request count',len(requests))
    if blocked:
     assert row['lastRule']=='custom.rule',(name,'missing block evidence')

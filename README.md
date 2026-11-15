@@ -12,7 +12,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 ## 自动加载
 
-Rust + GPUI Kit 桌面端 0.2.0 已接通安装管理、自动会话状态和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
+Rust + GPUI Kit 桌面端 0.2.0 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
 
 安装器会安装并启用 `agent-safeguard@agent-safeguard-local`，scope 为 user。完成安装后直接运行 `claude` 即可；同机 Claude App 的本地 Code 会话按官方共享设置机制加载，无需启动器、开机服务或额外参数。已有会话需重启或新建会话后加载；没有改动运行中的会话。
 

@@ -46,6 +46,7 @@ struct Desktop {
     draft: Option<Document>,
     feed: sessions::Feed,
     detail: Option<sessions::Session>,
+    connections_page: usize,
     edit: bool,
     edit_index: Option<usize>,
     name: Entity<InputState>,
@@ -86,6 +87,7 @@ impl Desktop {
             draft: None,
             feed: Default::default(),
             detail: None,
+            connections_page: 0,
             edit: false,
             edit_index: None,
             name,
@@ -104,16 +106,22 @@ impl Desktop {
         });
         let manager = s.manager.clone();
         cx.spawn_in(window, async move |view, cx| {
+            let mut observer = sessions::Observer::default();
             loop {
                 cx.background_executor().timer(Duration::from_secs(2)).await;
                 let m = manager.clone();
-                let reports = cx
+                let (next_observer, reports) = cx
                     .background_executor()
-                    .spawn(async move { m.sessions() })
+                    .spawn(async move {
+                        let reports = observer.poll(&m);
+                        (observer, reports)
+                    })
                     .await;
+                observer = next_observer;
                 if view
                     .update_in(cx, |s, _, cx| {
-                        s.feed.update(reports);
+                        s.feed.update(reports.0);
+                        s.feed.update_history(reports.1);
                         cx.notify();
                     })
                     .is_err()
@@ -284,256 +292,223 @@ impl Desktop {
                     .child(detail.into()),
             )
     }
+    fn rule_label(&self, row: &sessions::Session) -> String {
+        let id = row.matched_rule().unwrap_or("");
+        match id {
+            "network.address" => "IP 地址规则".into(),
+            "identity.device" => "设备标识规则".into(),
+            "identity.environment" => "主机名规则".into(),
+            "security.credentials" => "凭据规则".into(),
+            "inspection.failed" => "检查未完成（非规则命中）".into(),
+            "initialization.failed" => "初始化失败（非规则命中）".into(),
+            "tool.hook.failed" | "prompt.hook.failed" | "context.hook.failed" => {
+                "插件处理异常（非规则命中）".into()
+            }
+            "custom.rule" | "" => "自定义规则（旧版未记录具体规则）".into(),
+            _ => self
+                .saved
+                .as_ref()
+                .filter(|d| d.version() == row.rule_version)
+                .and_then(|d| {
+                    d.rows()
+                        .iter()
+                        .find(|r| r["id"].as_str() == Some(id))
+                        .map(|r| d.name(r))
+                })
+                .unwrap_or_else(|| format!("规则 {id}")),
+        }
+    }
     fn overview(&self, cx: &mut Context<Self>) -> AnyElement {
-        let h = self.harnesses.first();
         let now = sessions::now();
-        let rows: Vec<_> = self.feed.sessions.values().collect();
-        let connected = rows.iter().filter(|s| s.state(now) == "已连接").count();
-        let issues = rows
+        let dashboard = sessions::Dashboard::new(self.feed.sessions.values(), now);
+        let mut protected = std::collections::BTreeMap::<String, &sessions::Session>::new();
+        for row in dashboard
+            .current
             .iter()
-            .filter(|s| s.fresh(now) && !s.ended && s.blocked)
-            .count();
-        let title = if self.feed.warning.is_some() {
-            "状态读取需检查".into()
-        } else if issues > 0 {
-            format!("{issues} 个会话需要处理")
-        } else if connected > 0 {
-            format!("已连接 {connected} 个会话")
-        } else if !rows.is_empty() {
-            "当前没有可确认的连接".into()
-        } else if h.is_some_and(|h| h.installed) {
-            "插件已安装，等待新会话".into()
-        } else {
-            "连接 Claude Code".into()
-        };
-        let first_issue = rows
+            .filter(|r| r.connection_state(now) == sessions::ConnectionState::Connected)
+        {
+            let key = row
+                .identity
+                .host_session_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| row.session.clone());
+            if protected
+                .get(&key)
+                .is_none_or(|old| old.updated_at < row.updated_at)
+            {
+                protected.insert(key, *row);
+            }
+        }
+        let mut active: Vec<_> = protected.values().copied().collect();
+        active.sort_by_key(|s| (s.identity.project_name(), s.identity.title()));
+        let mut logs: std::collections::BTreeMap<_, _> = self
+            .feed
+            .interceptions
             .iter()
-            .find(|r| r.fresh(now) && !r.ended && r.blocked)
-            .map(|r| (*r).clone());
-        let hero_label = if first_issue.is_some() {
-            "查看阻断详情"
-        } else if h.is_some_and(|h| h.installed) {
-            "查看连接设置"
-        } else {
-            "安装插件"
-        };
-        let hero_detail = if issues > 0 {
-            "查看原因与处理结果，修正后新建会话继续。"
-        } else if connected > 0 {
-            "已收到接入报告。每个会话的插件与规则版本单独显示。"
-        } else {
-            "在 Claude Code 中新建会话，接入后将在这里自动显示。"
-        };
-        let mut content = div().v_flex().gap_4().child(
-            div()
-                .v_flex()
-                .gap_4()
-                .p_5()
-                .rounded_lg()
-                .border_1()
-                .border_color(rgb(appearance::BORDER))
-                .bg(rgb(appearance::SURFACE))
-                .child(
-                    div()
-                        .flex()
-                        .items_start()
-                        .justify_between()
-                        .gap_4()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .child(
-                                    div()
-                                        .size(px(38.))
-                                        .flex()
-                                        .items_center()
-                                        .justify_center()
-                                        .rounded_lg()
-                                        .bg(rgb(0x29243E))
-                                        .child(
-                                            Icon::new(if issues > 0 {
-                                                IconName::CircleAlert
-                                            } else {
-                                                IconName::Network
-                                            })
-                                            .size(px(20.))
-                                            .text_color(rgb(appearance::ACCENT)),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .v_flex()
-                                        .gap_1()
-                                        .child(
-                                            div()
-                                                .text_size(px(10.))
-                                                .text_color(rgb(appearance::MUTED))
-                                                .child("会话接入状态"),
-                                        )
-                                        .child(
-                                            div()
-                                                .text_size(px(18.))
-                                                .font_weight(FontWeight::SEMIBOLD)
-                                                .child(title),
-                                        ),
-                                ),
-                        )
-                        .child(
-                            Button::new("refresh-status")
-                                .ghost()
-                                .small()
-                                .icon(IconName::RefreshCw)
-                                .label("刷新")
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.feed.update(s.manager.sessions());
-                                    cx.notify();
-                                })),
-                        ),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .text_color(rgb(appearance::MUTED))
-                        .child(hero_detail),
-                )
-                .child(
-                    div().flex().child(
-                        Button::new("go-tools")
-                            .primary()
-                            .small()
-                            .label(hero_label)
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                if let Some(d) = &first_issue {
-                                    s.detail = Some(d.clone());
-                                } else {
-                                    s.page = Page::Tools;
-                                }
-                                cx.notify();
-                            })),
-                    ),
-                ),
-        );
-        if h.is_some_and(|h| h.enabled == Some(false)) {
-            content = content.child(self.panel(
-                "插件配置已禁用",
-                "新会话不会加载；已有会话不会因此自动停止。",
-                cx,
-            ));
+            .map(|(id, r)| (id.clone(), r))
+            .collect();
+        for row in self.feed.sessions.values().filter(|r| r.has_interception()) {
+            logs.entry(row.session.clone()).or_insert(row);
         }
-        if let Some(warning) = self.feed.warning {
-            content = content.child(self.panel("读取提醒", warning, cx));
-        }
-        if let Some(d) = &self.detail {
-            content = content.child(
-                self.panel(
-                    format!("详情 · 会话 {}", &d.session[..8]),
-                    format!("{} · {}", d.reason(), d.outcome()),
-                    cx,
-                )
-                .child(div().text_sm().child(format!(
-                    "事件 {} · 插件 {} · 规则 {}",
-                    backend::safe_label(d.last_event.as_deref().unwrap_or("none")),
-                    d.plugin_version,
-                    d.rule_version
-                )))
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            Button::new("detail-rules")
-                                .small()
-                                .label("查看规则")
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.page = Page::Rules;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("detail-close")
-                                .ghost()
-                                .small()
-                                .label("收起")
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.detail = None;
-                                    cx.notify();
-                                })),
-                        ),
-                ),
-            );
+        let mut logs: Vec<_> = logs.into_values().collect();
+        logs.sort_by_key(|r| (std::cmp::Reverse(r.blocked_at()), &r.session));
+        let mut content = div().v_flex().gap_4();
+        if let Some(warning) = self.feed.warning.or(self.feed.history_warning) {
+            content = content.child(self.panel("状态读取提醒", warning, cx));
         }
         content = content.child(
             div()
                 .flex()
                 .items_center()
                 .gap_2()
-                .mt_3()
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(px(16.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("会话"),
+                        .child("正在保护的会话"),
                 )
-                .child(appearance::badge(format!("{}", rows.len()), false)),
+                .child(appearance::badge(active.len().to_string(), false)),
         );
-        if rows.is_empty() {
-            let mut steps = div()
-                .flex()
-                .gap_4()
-                .p_4()
-                .rounded_md()
-                .border_1()
-                .border_color(rgb(appearance::BORDER));
-            for (number, label, desc) in [
-                ("1", "安装插件", "在工具页完成安装"),
-                ("2", "新建会话", "在 Claude Code 中打开"),
-                ("3", "自动接入", "查看实际加载的规则"),
-            ] {
-                steps = steps.child(
-                    div()
-                        .v_flex()
-                        .flex_1()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(appearance::badge(number, number == "1"))
-                                .child(div().text_size(px(12.)).child(label)),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(rgb(appearance::MUTED))
-                                .child(desc),
-                        ),
-                );
-            }
-            content = content.child(steps);
-        }
-        for row in rows {
-            let session = row.clone();
+        if active.is_empty() {
             content = content.child(
                 self.panel(
-                    format!("Claude · {} · {}", &row.session[..8], row.state(now)),
-                    format!(
-                        "插件 {} · 规则 {} · {} 秒前更新",
-                        row.plugin_version,
-                        row.rule_version,
-                        now.saturating_sub(row.updated_at) / 1000
-                    ),
+                    "暂无已确认接入防护的会话",
+                    "在 Claude Code 中加载插件并新建会话后，项目和会话会自动出现在这里。",
                     cx,
                 )
                 .child(
-                    Button::new(SharedString::from(format!("session-{}", row.session)))
+                    Button::new("overview-install")
+                        .small()
+                        .label("打开安装管理")
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.page = Page::Tools;
+                            cx.notify();
+                        })),
+                ),
+            );
+        }
+        for row in active {
+            let identity = &row.identity;
+            let record = row.clone();
+            content = content.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .p_4()
+                    .rounded_md()
+                    .bg(rgb(appearance::SURFACE))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .v_flex()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(15.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(identity.title().to_owned()),
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(rgb(appearance::MUTED))
+                                    .child(format!(
+                                        "{}  ·  {}{}",
+                                        identity.project_name(),
+                                        identity.agent_name(),
+                                        identity
+                                            .model
+                                            .as_ref()
+                                            .map(|m| format!("  ·  {m}"))
+                                            .unwrap_or_default()
+                                    )),
+                            )
+                            .when(row.schema == 1, |this| {
+                                this.child(
+                                    div()
+                                        .text_size(px(11.))
+                                        .text_color(rgb(appearance::MUTED))
+                                        .child("旧版插件未提供会话信息，更新后新建会话可显示。"),
+                                )
+                            }),
+                    )
+                    .child(appearance::badge("防护已接入", true))
+                    .child(
+                        Button::new(SharedString::from(format!("protected-{}", row.session)))
+                            .ghost()
+                            .small()
+                            .label("详情")
+                            .on_click(cx.listener(move |s, _, _, cx| {
+                                s.detail = Some(record.clone());
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+        if dashboard.unconfirmed + dashboard.attention + dashboard.initializing > 0 {
+            content = content.child(
+                div()
+                    .text_size(px(11.))
+                    .text_color(rgb(appearance::MUTED))
+                    .child(format!(
+                        "未计入正在保护：{} 个已阻断或异常 · {} 个连接失去更新 · {} 个初始化中。",
+                        dashboard.attention, dashboard.unconfirmed, dashboard.initializing
+                    )),
+            );
+        }
+        if let Some(d) = &self.detail {
+            let d = self.feed.sessions.get(&d.session).unwrap_or(d);
+            let identity = d.display_identity(d.has_interception());
+            content = content.child(
+                self.panel(
+                    identity.title().to_owned(),
+                    format!(
+                        "{} · {}",
+                        identity.agent_name(),
+                        identity.project.as_deref().unwrap_or("项目未提供")
+                    ),
+                    cx,
+                )
+                .child(div().text_size(px(12.)).child(format!(
+                    "{} · 插件 {} · 规则版本 {} · {}",
+                    d.connection_label(now),
+                    d.plugin_version,
+                    d.rule_version,
+                    sessions::updated_label(d.updated_at, now)
+                )))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(rgb(appearance::MUTED))
+                        .child(format!(
+                            "会话 ID：{}",
+                            identity.host_session_id.as_deref().unwrap_or("旧版未提供")
+                        )),
+                )
+                .when(d.has_interception(), |this| {
+                    this.child(div().text_size(px(12.)).child(format!(
+                        "{} · {}",
+                        self.rule_label(d),
+                        d.action_label()
+                    )))
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(rgb(appearance::MUTED))
+                            .child("记录的是插件拒绝或扣留结果；已执行操作不会撤销。"),
+                    )
+                })
+                .child(
+                    Button::new("overview-close-detail")
                         .ghost()
                         .small()
-                        .label("查看详情")
-                        .on_click(cx.listener(move |s, _, _, cx| {
-                            s.detail = Some(session.clone());
+                        .label("收起详情")
+                        .on_click(cx.listener(|s, _, _, cx| {
+                            s.detail = None;
                             cx.notify();
                         })),
                 ),
@@ -542,92 +517,162 @@ impl Desktop {
         content = content.child(
             div()
                 .flex()
-                .justify_between()
-                .mt_3()
                 .items_center()
+                .justify_between()
+                .mt_4()
                 .child(
                     div()
-                        .text_size(px(13.))
+                        .text_size(px(16.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("最近记录"),
+                        .child("拦截历史"),
                 )
                 .child(
-                    Button::new("clear-events")
-                        .ghost()
-                        .small()
-                        .label("清除显示记录")
-                        .on_click(cx.listener(|s, _, _, cx| {
-                            s.feed.events.clear();
-                            cx.notify();
-                        })),
+                    div()
+                        .text_size(px(11.))
+                        .text_color(rgb(appearance::MUTED))
+                        .child(format!("{} 条保留记录", logs.len())),
                 ),
         );
-        if self.feed.events.is_empty() {
+        if logs.is_empty() {
+            content = content.child(
+                div()
+                    .p_5()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(appearance::BORDER))
+                    .text_color(rgb(appearance::MUTED))
+                    .child("暂无拦截记录。发生拦截后，会在这里显示所属会话、原因和命中规则。"),
+            );
+        }
+        const PAGE_SIZE: usize = 10;
+        let pages = logs.len().div_ceil(PAGE_SIZE).max(1);
+        let page = self.connections_page.min(pages - 1);
+        for row in logs.iter().skip(page * PAGE_SIZE).take(PAGE_SIZE) {
+            let identity = row.display_identity(true);
+            let record = (*row).clone();
+            let actor = row
+                .interception
+                .as_ref()
+                .and_then(|e| e.agent_type.as_ref())
+                .map(|a| format!(" · 子代理 {a}"))
+                .unwrap_or_else(|| {
+                    if row
+                        .interception
+                        .as_ref()
+                        .is_some_and(|e| e.agent_id.is_some())
+                    {
+                        " · 子代理".into()
+                    } else {
+                        String::new()
+                    }
+                });
+            let tool = row
+                .interception
+                .as_ref()
+                .and_then(|e| e.tool.as_ref())
+                .map(|t| format!(" · {t}"))
+                .unwrap_or_default();
+            let when = if row.blocked_at() > 0 {
+                sessions::updated_label(row.blocked_at(), now).replace("更新", "拦截")
+            } else {
+                "旧版记录 · 时间未提供".into()
+            };
             content = content.child(
                 div()
                     .flex()
-                    .items_center()
+                    .items_start()
                     .gap_3()
-                    .px_4()
-                    .py_5()
-                    .border_1()
+                    .py_4()
+                    .border_b_1()
                     .border_color(rgb(appearance::BORDER))
-                    .rounded_md()
-                    .child(appearance::icon(IconName::Inbox))
                     .child(
                         div()
+                            .w(px(112.))
+                            .flex_shrink_0()
+                            .text_size(px(11.))
+                            .text_color(rgb(appearance::MUTED))
+                            .child(when),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
                             .v_flex()
-                            .gap_1()
-                            .child(div().text_size(px(12.)).child("暂无事件记录"))
+                            .gap_2()
+                            .child(
+                                div()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(identity.title().to_owned()),
+                            )
                             .child(
                                 div()
                                     .text_size(px(11.))
                                     .text_color(rgb(appearance::MUTED))
-                                    .child("接入、阻断与检查异常会显示在这里，不记录敏感原文。"),
-                            ),
-                    ),
-            );
-        }
-        for (i, e) in self.feed.events.iter().take(10).enumerate() {
-            let event = e.clone();
-            content = content.child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .gap_3()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(div().text_sm().child(format!(
-                        "{} · {} · {}",
-                        &e.session[..8],
-                        e.reason(),
-                        if e.ended {
-                            "已结束"
-                        } else if e.blocked {
-                            "需处理"
-                        } else {
-                            "已接入"
-                        }
-                    )))
+                                    .child(format!(
+                                        "{} · {}{actor}",
+                                        identity.project_name(),
+                                        identity.agent_name()
+                                    )),
+                            )
+                            .child(div().text_size(px(12.)).child(format!(
+                                "{} · {}{tool}",
+                                self.rule_label(row),
+                                row.action_label()
+                            ))),
+                    )
                     .child(
-                        Button::new(("event", i))
+                        Button::new(SharedString::from(format!("intercept-{}", row.session)))
+                            .ghost()
+                            .small()
                             .label("详情")
                             .on_click(cx.listener(move |s, _, _, cx| {
-                                s.detail = Some(event.clone());
+                                s.detail = Some(record.clone());
+                                s.scroll.set_offset(point(px(0.), px(0.)));
                                 cx.notify();
                             })),
                     ),
             );
         }
-        content
-            .child(
+        if pages > 1 {
+            content = content.child(
                 div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("仅显示本机接入的插件实例 · 安装成功不等于会话已接入"),
-            )
-            .into_any_element()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(div().text_size(px(11.)).child(format!(
+                        "第 {} / {} 页",
+                        page + 1,
+                        pages
+                    )))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(
+                                Button::new("log-prev")
+                                    .small()
+                                    .label("上一页")
+                                    .disabled(page == 0)
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        s.connections_page = page.saturating_sub(1);
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("log-next")
+                                    .small()
+                                    .label("下一页")
+                                    .disabled(page + 1 == pages)
+                                    .on_click(cx.listener(move |s, _, _, cx| {
+                                        s.connections_page = page + 1;
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            );
+        }
+        content.into_any_element()
     }
     fn tools(&self, cx: &mut Context<Self>) -> AnyElement {
         let h = self.harnesses.first();
@@ -749,7 +794,7 @@ impl Desktop {
                             ))
                             .child(self.property("内置版本", backend::BUNDLED_VERSION))
                             .child(self.property("安装范围", "当前用户"))
-                            .child(self.property("生效方式", "新会话加载 · 已有会话以概览为准")),
+                            .child(self.property("生效方式", "新会话加载 · 已有会话以概览页为准")),
                     )
                     .child(
                         div()
@@ -1337,7 +1382,7 @@ impl Render for Desktop {
                 )
             });
         }
-        let mut nav = div().v_flex().gap_1().mt_2();
+        let mut nav = div().v_flex().gap_1();
         for (id, label, page, glyph) in [
             (
                 "nav-overview",
@@ -1345,49 +1390,42 @@ impl Render for Desktop {
                 Page::Overview,
                 IconName::LayoutDashboard,
             ),
-            ("nav-tools", "工具", Page::Tools, IconName::SquareTerminal),
-            ("nav-rules", "规则", Page::Rules, IconName::Settings2),
+            (
+                "nav-tools",
+                "安装管理",
+                Page::Tools,
+                IconName::SquareTerminal,
+            ),
+            ("nav-rules", "规则编辑", Page::Rules, IconName::Settings2),
         ] {
             let active = self.page == page;
             nav = nav.child(
-                Button::new(id)
-                    .ghost()
-                    .icon(glyph)
-                    .label(label)
-                    .w_full()
-                    .h(px(34.))
-                    .justify_start()
-                    .px_3()
-                    .bg(rgb(if active {
-                        0x25242F
-                    } else {
-                        appearance::SIDEBAR
-                    }))
-                    .text_color(rgb(if active {
-                        appearance::TEXT
-                    } else {
-                        appearance::MUTED
-                    }))
-                    .on_click(cx.listener(move |s, _, _, cx| {
+                appearance::navigation_item(id, label, glyph, active).on_click(cx.listener(
+                    move |s, _, _, cx| {
                         s.page = page;
+                        if page == Page::Overview {
+                            s.connections_page = 0;
+                            s.detail = None;
+                        }
                         s.scroll.set_offset(point(px(0.), px(0.)));
                         cx.notify();
-                    })),
+                    },
+                )),
             );
         }
         let (title, subtitle, glyph) = match self.page {
             Page::Overview => (
                 "概览",
-                "关注接入状态，以及需要处理的事件。",
+                "查看正在保护的会话，以及曾经发生的拦截。",
                 IconName::LayoutDashboard,
             ),
             Page::Tools => (
-                "工具",
+                "安装管理",
                 "连接本机编程工具，管理插件与更新。",
                 IconName::SquareTerminal,
             ),
             Page::Rules => (
-                "规则",
+                "规则编辑",
                 "定义需要留在本机的信息。更改仅在新会话生效。",
                 IconName::Settings2,
             ),
@@ -1430,121 +1468,48 @@ impl Render for Desktop {
                 );
         }
         body = body.child(page);
-        div()
-            .size_full()
+        let content = div()
+            .w_full()
+            .flex_1()
+            .min_h_0()
             .flex()
             .bg(rgb(appearance::BG))
             .text_color(rgb(appearance::TEXT))
             .text_size(px(13.))
             .child(
                 div()
-                    .w(px(208.))
+                    .w(px(240.))
                     .h_full()
                     .flex_shrink_0()
                     .v_flex()
                     .px_3()
-                    .py_5()
+                    .pt_2()
+                    .pb_5()
                     .bg(rgb(appearance::SIDEBAR))
                     .border_r_1()
                     .border_color(rgb(appearance::BORDER))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .px_2()
-                            .mb_6()
-                            .child(
-                                div()
-                                    .size(px(28.))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .rounded_md()
-                                    .bg(rgb(0x7566DC))
-                                    .text_color(rgb(0xFFFFFF))
-                                    .font_weight(FontWeight::BOLD)
-                                    .child("S"),
-                            )
-                            .child(
-                                div()
-                                    .v_flex()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_size(px(13.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child("Safeguard"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(10.))
-                                            .text_color(rgb(appearance::MUTED))
-                                            .child("个人工作空间"),
-                                    ),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .px_3()
-                            .text_size(px(10.))
-                            .text_color(rgb(0x757682))
-                            .child("工作空间"),
-                    )
                     .child(nav)
                     .child(div().flex_1())
                     .child(
                         div()
-                            .px_3()
-                            .py_3()
-                            .mb_3()
-                            .border_1()
+                            .border_t_1()
                             .border_color(rgb(appearance::BORDER))
-                            .rounded_md()
-                            .v_flex()
-                            .gap_2()
+                            .pt_3()
                             .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(appearance::icon(IconName::HardDrive))
-                                    .child(div().text_size(px(12.)).child("本地优先")),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(rgb(appearance::MUTED))
-                                    .child("规则与检测都留在这台设备。"),
+                                appearance::navigation_item(
+                                    "about",
+                                    "帮助与关于",
+                                    IconName::Info,
+                                    self.about,
+                                )
+                                .on_click(cx.listener(
+                                    |s, _, _, cx| {
+                                        s.about = !s.about;
+                                        s.scroll.set_offset(point(px(0.), px(0.)));
+                                        cx.notify();
+                                    },
+                                )),
                             ),
-                    )
-                    .child(
-                        Button::new("about")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Info)
-                            .label("帮助与关于")
-                            .justify_start()
-                            .w_full()
-                            .on_click(cx.listener(|s, _, _, cx| {
-                                s.about = !s.about;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .justify_between()
-                            .px_3()
-                            .mt_4()
-                            .text_size(px(10.))
-                            .text_color(rgb(0x737580))
-                            .child(if self.manager.demo {
-                                "演示工作空间"
-                            } else {
-                                "本机 Claude Code"
-                            })
-                            .child("v0.2.0"),
                     ),
             )
             .child(
@@ -1553,39 +1518,6 @@ impl Render for Desktop {
                     .flex_1()
                     .min_w_0()
                     .h_full()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .h(px(48.))
-                            .px_7()
-                            .border_b_1()
-                            .border_color(rgb(appearance::BORDER))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .child(appearance::icon(glyph))
-                                    .child(div().text_size(px(12.)).child(title))
-                                    .child(div().text_color(rgb(0x565864)).child("/ "))
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(rgb(appearance::MUTED))
-                                            .child("工作空间"),
-                                    ),
-                            )
-                            .child(appearance::badge(
-                                if self.manager.demo {
-                                    "演示模式"
-                                } else {
-                                    "仅限本机"
-                                },
-                                false,
-                            )),
-                    )
                     .child(
                         div()
                             .id("page-scroll")
@@ -1637,7 +1569,63 @@ impl Render for Desktop {
                             }))
                             .child(self.notice.clone()),
                     ),
+            );
+        div()
+            .size_full()
+            .v_flex()
+            .bg(rgb(appearance::BG))
+            .text_color(rgb(appearance::TEXT))
+            .child(
+                TitleBar::new()
+                    .h(px(52.))
+                    .pl_0()
+                    .border_b_0()
+                    .bg(rgb(appearance::BG))
+                    .on_close_window(cx.listener(|s, _, w, cx| {
+                        if s.busy || s.dirty() || s.edit {
+                            s.close_pending = true;
+                            s.scroll.set_offset(point(px(0.), px(0.)));
+                            cx.notify();
+                        } else {
+                            w.remove_window();
+                        }
+                    }))
+                    .child(
+                        div()
+                            .size_full()
+                            .flex()
+                            .child(
+                                div()
+                                    .w(px(240.))
+                                    .h_full()
+                                    .flex_shrink_0()
+                                    .bg(rgb(appearance::SIDEBAR))
+                                    .border_r_1()
+                                    .border_color(rgb(appearance::BORDER)),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .h_full()
+                                    .flex()
+                                    .items_center()
+                                    .justify_between()
+                                    .px_8()
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(appearance::icon(glyph))
+                                            .child(div().text_size(px(13.)).child(title)),
+                                    )
+                                    .when(self.manager.demo, |this| {
+                                        this.child(appearance::badge("演示模式", false))
+                                    }),
+                            ),
+                    ),
             )
+            .child(content)
     }
 }
 fn option(args: &[String], name: &str) -> Option<String> {
@@ -1712,9 +1700,10 @@ fn main() {
                 window_min_size: Some(size(px(800.), px(600.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Agent Safeguard".into()),
-                    ..Default::default()
+                    traffic_light_position: Some(point(px(16.), px(19.))),
+                    ..TitleBar::title_bar_options()
                 }),
-                ..Default::default()
+                ..TitleBar::window_options()
             };
             gpui_kit::open_window(options, cx, |w, cx| {
                 cx.new(|cx| Desktop::new(manager, started, measure, page, w, cx))

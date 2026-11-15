@@ -1,5 +1,9 @@
 use gpui_kit::component::StyledExt;
 use gpui_kit::component::{Icon, IconName, Theme, ThemeMode};
+use gpui_kit::component::{
+    Selectable,
+    button::{Button, ButtonVariants},
+};
 use gpui_kit::*;
 pub const BG: u32 = 0x15161B;
 pub const SIDEBAR: u32 = 0x101115;
@@ -52,6 +56,55 @@ pub fn init(cx: &mut App) {
 }
 pub fn icon(name: IconName) -> Icon {
     Icon::new(name).size(px(16.)).text_color(rgb(MUTED))
+}
+/// A full-width content row keeps icons and labels on shared leading edges.
+/// Styling the Button root alone leaves GPUI Kit's inner label centered.
+pub fn navigation_item(
+    id: &'static str,
+    label: &'static str,
+    glyph: IconName,
+    active: bool,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .accessibility_label(label)
+        .selected(active)
+        .w_full()
+        .h(px(44.))
+        .px_3()
+        .rounded(px(8.))
+        .bg(rgb(if active { 0x30313B } else { SIDEBAR }))
+        .text_color(rgb(TEXT))
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(
+                    div()
+                        .w(px(24.))
+                        .flex_shrink_0()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(Icon::new(glyph).size(px(20.)).text_color(rgb(if active {
+                            0xC3B9FF
+                        } else {
+                            0xA7A9B5
+                        }))),
+                )
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(if active {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .child(label),
+                ),
+        )
 }
 pub fn badge(text: impl Into<SharedString>, accent: bool) -> Div {
     div()
