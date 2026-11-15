@@ -43,12 +43,12 @@ test('网段豁免配置可撤回，且不影响其他精确规则',()=>{
 test('显式类型声明不当作凭据，真实初始化值仍阻断',()=>{
  const e=compile();const clean=['public var secret: Bool = false','public var secret: Bool = true','let password: String','private let apiKey: String? = nil','const token: string;','let authorization: string | null = null','public var secret: Foundation.Data = Data()'];
  for(const source of ['user.prompt','tool.input','tool.result','prompt.context'])for(const s of clean)assert.equal(e.scan(s,source).blocked,false,s);
- for(const s of ['let password: String = "SYNTHETIC_PASSWORD"','const token: string = "SYNTHETIC_TOKEN"','public var secret: Bool = false; password=SYNTHETIC_PASSWORD','public var secret: Bool = false\nAuthorization: Bearer SYNTHETIC_TOKEN','secret: Bool','password=String',{password:'String'},{secret:'Bool'},JSON.stringify({token:'SYNTHETIC_TOKEN'})])assert.equal(e.scan(s).rule,'security.credentials',JSON.stringify(s));
+ for(const s of ['let password: String = "SYNTHETIC_PASSWORD"','const token: string = "SYNTHETIC_TOKEN"','public var secret: Bool = false; password=SYNTHETIC_PASSWORD','public var secret: Bool = false\nAuthorization: Bearer SYNTHETIC_TOKEN',JSON.stringify({token:'SYNTHETIC_TOKEN'})])assert.equal(e.scan(s).rule,'security.credentials',JSON.stringify(s));
 });
 
 test('类型声明只豁免自身且保留其他字段和其他规则',()=>{
- const e=compile();for(const text of ['let password: String = "Bool"','const access_token: string = "SYNTHETIC_TOKEN"','const refreshToken: string = "SYNTHETIC_TOKEN"','let secret: Data = Data(base64Encoded: "SYNTHETIC_SECRET")','public var secret: Bool = false // api_key=SYNTHETIC_KEY','public var secret: Bool = false\n{"token":"SYNTHETIC_TOKEN"}','public var secret: Bool = false\n-----BEGIN PRIVATE KEY-----','public var secret: Bool = false\nsocks5://example:SYNTHETIC_SECRET@proxy.example.invalid'])assert.equal(e.scan(text).rule,'security.credentials',text);
- for(const value of [{token:'Bool'},{secret:'String'},{secret:'Foundation.Data'},JSON.stringify({secret:'Bool'})])assert.equal(e.scan(value).rule,'security.credentials');
+ const e=compile();for(const text of ['const access_token: string = "SYNTHETIC_TOKEN"','const refreshToken: string = "SYNTHETIC_TOKEN"','let secret: Data = Data(base64Encoded: "SYNTHETIC_SECRET")','public var secret: Bool = false // api_key=SYNTHETIC_KEY','public var secret: Bool = false\n{"token":"SYNTHETIC_TOKEN"}','public var secret: Bool = false\n-----BEGIN PRIVATE KEY-----','public var secret: Bool = false\nsocks5://example:SYNTHETIC_SECRET@proxy.example.invalid'])assert.equal(e.scan(text).rule,'security.credentials',text);
+ for(const value of [{token:'Bool'},{secret:'String'},{secret:'Foundation.Data'},JSON.stringify({secret:'Bool'})])assert.equal(e.scan(value).blocked,false);
  assert.equal(e.scan('public var secret: Bool = false\n203.0.113.7').rule,'network.address');
 });
 

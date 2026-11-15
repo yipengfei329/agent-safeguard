@@ -54,6 +54,10 @@ export function compile(config=defaults,options={}){
       let bytes=0,nodes=0;const seen=new Set();const active=rules.filter(r=>r.sources.includes(source)&&(!r.tools||r.tools.includes(tool)));
       function text(s,decode=0,key=""){
         bytes+=encoder.encode(s).length;if(bytes>limits.maxTextBytes)throw Error();
+        // Credential evidence comes from decoded values rather than JSON escape
+        // syntax. Other rule kinds retain their existing raw-text semantics.
+        let decoded,hasDecoded=false;
+        if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {try{decoded=JSON.parse(s);hasDecoded=true;}catch{}}
         const normalized=s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
         let ips;
         for(const r of active){
@@ -61,10 +65,10 @@ export function compile(config=defaults,options={}){
           if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||(d.mode==='country'?geo.lookup(ip)===1:matchesRanges(ip,r.ranges,budget))));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
           if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
-          if(d.kind==='builtin'){hit=d.name==='credentials'?hasCredentials(normalized,key):identity(normalized,key,d.name);}
+          if(d.kind==='builtin'){hit=d.name==='credentials'?!hasDecoded&&hasCredentials(normalized,key):identity(normalized,key,d.name);}
           if(hit&&r.action==='block')return {blocked:true,rule:r.id};if(hit)observed.add(r.id);
         }
-        if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {let obj;try{obj=JSON.parse(s);}catch{}if(obj!==undefined)return visit(obj,1,decode+1);}
+        if(hasDecoded)return visit(decoded,1,decode+1,key);
         return null;
       }
       function visit(v,depth=0,decode=0,inheritedKey=''){
