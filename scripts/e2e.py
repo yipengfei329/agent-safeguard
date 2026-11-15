@@ -50,7 +50,7 @@ cases += [
  ('guard-precision-initializer','let token: "custom-type-discriminant" = "rQ7!mL2_zA9#vC4-pF8@tN6";',True),
  ('guard-precision-regex','function render() { const pattern = /interface Options {/; const x = { token: "rQ7!mL2_zA9#vC4-pF8@tN6" }; }',True),
 ]
-boundary_clean={'guard-dense-code','guard-dense-error','guard-short-prefixed','guard-numbered-label','guard-numbered-error','guard-boundary-empty','guard-boundary-metadata','guard-boundary-reference','guard-shape-reference','guard-shape-reference-error','guard-shared-calls','guard-shared-error','guard-shared-reference','guard-shared-ui'}
+boundary_clean={'guard-symbol-name','guard-symbol-name-error','guard-symbol-reference','guard-dense-code','guard-dense-error','guard-short-prefixed','guard-numbered-label','guard-numbered-error','guard-boundary-empty','guard-boundary-metadata','guard-boundary-reference','guard-shape-reference','guard-shape-reference-error','guard-shared-calls','guard-shared-error','guard-shared-reference','guard-shared-ui'}
 cases += [
  ('guard-boundary-empty','PASSWORD= HOST=demo-service',True),
  ('guard-boundary-metadata','token_count=1234567890\naccess_token_expires_at="2026-11-15T12:34:56Z"',True),
@@ -80,6 +80,16 @@ cases += [
 ]
 dense_code=subprocess.check_output(['node','--input-type=module','-e',"import {denseSource} from './fixtures/dense-source.mjs';process.stdout.write(denseSource(10240,true));"],cwd=ROOT,text=True)
 cases += [('guard-dense-code',dense_code,True),('guard-dense-error',dense_code,True),('guard-dense-tail',dense_code+'\nAPI_KEY="pM8!sQ3_vL7#rD5-tN2@xK9";',True)]
+cases += [
+ ('guard-symbol-name','# Repository secret: ORCHARD_PUBLISH_TOKEN (configured externally)',True),
+ ('guard-symbol-name-error','// Required secret: "CINDER_BUILD_KEY"',True),
+ ('guard-symbol-reference',json.dumps({'token':'secrets["MESA_DEPLOY_TOKEN"]'}),True),
+ ('guard-symbol-secret','# secret: pM8!sQ3_vL7#rD5-tN2@xK9',True),
+ ('guard-symbol-secret-error','# secret: pM8!sQ3_vL7#rD5-tN2@xK9',True),
+ ('guard-symbol-uppercase','# secret: ORCHARD_PUBLISH_TOKEN',True),
+ ('guard-symbol-adjacent','# Repository secret: ORCHARD_PUBLISH_TOKEN\n# secret: pM8!sQ3_vL7#rD5-tN2@xK9',True),
+ ('guard-symbol-joined','# Repository secret: "ORCHARD_PUBLISH_TOKEN" + "Q7LM2ZP9VN4RX8TC3KB6DS5F"',True),
+]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
@@ -89,7 +99,7 @@ for name,output,guard in cases:
    def do_POST(self):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     has_result=any(isinstance(m.get('content'),list) and any(b.get('type')=='tool_result' for b in m['content']) for m in data.get('messages',[]))
-    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-dense-error","guard-numbered-error","guard-stderr","guard-credential-stderr","guard-precision-stderr","guard-boundary-stderr","guard-shape-reference-error","guard-shared-error","guard-shared-stderr"] else ""),'description':'Synthetic fixture'}}]
+    blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-symbol-name-error","guard-symbol-secret-error","guard-dense-error","guard-numbered-error","guard-stderr","guard-credential-stderr","guard-precision-stderr","guard-boundary-stderr","guard-shape-reference-error","guard-shared-error","guard-shared-stderr"] else ""),'description':'Synthetic fixture'}}]
     if name=='guard-image' and not has_result:blocks=[{'type':'tool_use','id':'tool_fixture','name':'Read','input':{'file_path':str(base/'fixture.png')}}]
     message={'id':'msg_fixture','type':'message','role':'assistant','model':data.get('model','test'),'content':blocks,'stop_reason':'end_turn' if has_result else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     if data.get('stream'):

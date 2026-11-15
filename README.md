@@ -4,7 +4,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.24，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.25，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
@@ -54,7 +54,9 @@ claude plugin uninstall agent-safeguard@agent-safeguard-local --scope user
 
 没有平台标记、只有描述里的 Simulator 字样、不完整/无法解析的记录继续按设备规则检查。这是基于工具输出元数据的判断，无法验证设备物理身份；自定义精确规则仍可拦截指定模拟器 UUID。已有会话需重新启动后加载新引擎。测试与边界见 [模拟器检测说明](docs/simulator-identifiers.md)。
 
-## 凭据与身份字段检测（0.1.24）
+## 凭据与身份字段检测（0.1.25）
+
+0.1.25 区分明确的 Secret/变量名称声明、完整引用和实际凭据值。普通赋值、结构化数据及注释中的密钥继续检查；名称和值采用分离的缓存，保留相邻值和字面量拼接检测。没有具体名称白名单，详情见 [凭据检测说明](docs/credential-detection.md)。
 
 0.1.24 减少密集代码的重复类型解析、逐词扫描和候选值处理，保持 100 ms 预算。新增重复/逐行唯一源码以及 1 MiB 末尾凭据的完整原生 hook 回归；测量口径与复现方法见 [密集代码扫描说明](docs/dense-scanning.md)。
 

@@ -1,3 +1,4 @@
+import {symbolName,symbolReference} from './symbol-values.js';
 import {atomicEvidence,phraseEvidence,credentialAtoms,labelEvidence} from './credential-shape.js';
 // Candidate-local negative evidence, followed by positive secret evidence.
 // These are syntax/value heuristics, not proof that a credential is invalid.
@@ -54,8 +55,11 @@ function* templateLiterals(value,budget) {
   yield value.slice(start);
 }
 
-export function secretValue(value, name='', budget=()=>{}) {
+export function secretValue(value, name='', budget=()=>{}, evidence='value') {
   value=value.trim();
+  // Only an explicit name slot can reinterpret an uppercase identifier. Plain
+  // fields, quoted passwords and structured values retain value semantics.
+  if(evidence==='symbol-name'&&symbolName(value))return false;
   const password=/pass(?:word|wd)/i.test(name);
   // This whole-value shape cannot contain interpolation or a secret atom.
   // Evaluate it before the more expensive expression/prose classifiers.
@@ -65,6 +69,7 @@ export function secretValue(value, name='', budget=()=>{}) {
     for(const part of templateLiterals(value,budget))if(secretValue(part,name,budget))return true;
     return false;
   }
+  if(symbolReference(value))return false;
   if(/^(?:true|false|null|nil|undefined|None|Bool|String|boolean|string|number)$/i.test(value))return false;
   if(/^[A-Za-z][a-z]{2,}(?:[A-Z][a-z]{2,})+$/.test(value))return false;
   if(/^[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)+(?:\([^\r\n]*\))?$/.test(value)||/^[A-Za-z_$][\w$]*\([^\r\n]*\)$/.test(value))return false;

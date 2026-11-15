@@ -14,6 +14,10 @@ const codeRHS = /^(?:[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)*(?:\([^\r\n]*|(?:\
 const expressionStart=/^(?:(?:await|try|new|yield|lambda|async|return|throw)[ \t]+\S|[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)*\s*[([])/;
 const memberReference=/^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+(?=$|[\s,;})])/;
 const dynamicTail=/^[ \t]*(?:[+?]|\?\.|\.(?:[A-Za-z_]\w*)\s*\(|(?:if|and|or)\b)/;
+// A semantic qualifier plus a colon describes a name slot. Bare `secret:` or
+// `password=` remains value-bearing even in a comment. This is candidate-local,
+// and each policy decides whether identifier-shaped data can be a name.
+const nameDeclarationPrefix=/(?:^|[\s#/*>])(?:repository|repo|organization|org|environment|workflow|required|optional|variable|constant|reference)(?:[ \t]+(?:repository|repo|organization|org|environment|workflow|required|optional|variable|constant|reference))*[ \t]+$/i;
 const interpolation=/\$\{|\{\{|\\\(/;
 
 function literalArgument(rhs, isValue) {
@@ -34,7 +38,7 @@ function literalArgument(rhs, isValue) {
 // fields in the same result. Restricted alphabet intentionally trades coverage
 // of exotic unquoted passwords for fewer false positives.
 function bareScalarValue(rhs){
-  const match=rhs.match(/^((?=[A-Za-z0-9#]|\$\{|\{\{)(?:[A-Za-z0-9_+/.!@#%=-]|\$\{[A-Za-z_][\w.:-]*\}|\{\{[ \t]*[\w.]+[ \t]*\}\})+)(?=$|[\s,;}])/);
+  const match=rhs.match(/^((?=[A-Za-z0-9_#]|\$\{|\{\{)(?:[A-Za-z0-9_+/.!@#%=-]|\$\{[A-Za-z_][\w.:-]*\}|\{\{[ \t]*[\w.]+[ \t]*\}\})+)(?=$|[\s,;}])/);
   if(!match)return null;
   const tail=rhs.slice(match[0].length);
   if(!/^[ \t]+\*\//.test(tail)&&/^[ \t]+(?:[?!&|+*/=<>.\[(]|->|(?:as|instanceof|if|else|and|or|is|in|not)\b)/.test(tail))return null;
@@ -71,37 +75,41 @@ function annotationEnd(rhs, allowString=false){
 
 export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   const {field:fieldMatcher,key:keyMatcher,marker}=policy.matchers;
-  let fieldName=keyMatcher.test(key)?policy.classify(key):null;
-  const negativeValues=new Map(),fieldKinds=new Map(),prefixContexts=new Map();
-  const valuePresent=value=>{
-    let cache=negativeValues.get(fieldName);
-    if(!cache){cache=new Set();negativeValues.set(fieldName,cache);}
+  let fieldName=keyMatcher.test(key)?policy.classify(key):null,evidence='value';
+  const negativeValues=new Map(),negativeNames=new Map(),fieldKinds=new Map(),prefixContexts=new Map();
+  const valuePresent=(value,kind=evidence)=>{
+    const caches=kind==='symbol-name'?negativeNames:negativeValues;
+    let cache=caches.get(fieldName);
+    if(!cache){cache=new Set();caches.set(fieldName,cache);}
     if(value.length<=256&&cache.has(value))return false;
-    const result=policy.accept(value,fieldName,budget);
+    const result=policy.accept(value,fieldName,budget,kind);
     if(!result&&value.length<=256&&cache.size<128)cache.add(value);
     return result;
   };
-  const literalPresent=value=>(policy.allowDynamic!==false||!interpolation.test(value))?valuePresent(value):false;
+  const literalPresent=(value,kind=evidence)=>(policy.allowDynamic!==false||!interpolation.test(value))?valuePresent(value,kind):false;
   function quotedReason(rhs) {
     const quoted=readSourceQuoted(rhs);
     if (quoted!==null) {
       const rest=rhs.slice(quoted.length);
       if (/^(?:Bearer|Basic) $/.test(quoted.value) && /^[ \t]*\+[ \t]*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[ \t]*(?:;|$)/.test(rest)) return null;
       if (/^(?:Bearer|Basic) \$\{[A-Za-z_$][\w$.]*\}$/.test(quoted.value)) return null;
-      let combined=quoted.value,tail=rest;
+      let combined=quoted.value,tail=rest,joined=false;
       for(let i=0;i<8;i++){
         const join=tail.match(/^[ \t]*\+[ \t]*(?=["'`])/);if(!join)break;
         tail=tail.slice(join[0].length);const part=readQuoted(tail);if(part===null)break;
-        combined+=part.value;tail=tail.slice(part.length);
+        combined+=part.value;tail=tail.slice(part.length);joined=true;
       }
       if(policy.allowDynamic===false&&dynamicTail.test(tail))return null;
-      if(literalPresent(combined)||/^(?:Bearer|Basic) /.test(combined)&&literalPresent(combined.replace(/^(?:Bearer|Basic) /,'')))return 'literal-value';return null;
+      // Literal concatenation produces a value, not a single symbolic name.
+      const kind=joined?'value':evidence;
+      if(literalPresent(combined,kind)||/^(?:Bearer|Basic) /.test(combined)&&literalPresent(combined.replace(/^(?:Bearer|Basic) /,''),kind))return 'literal-value';return null;
     }
     return undefined;
   }
   function candidateReason(m,start,before,rawRHS) {
     // Bound context work even for minified/generated code on one long line.
     const prefix=before.slice(before.lastIndexOf('\n')+1);
+    evidence=m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix)?'symbol-name':'value';
     // A quoted switch label is not a field. Exact boundaries already exclude ask-secret.
     if (/\bcase[ \t]+$/.test(prefix)) return null;
     let rhs=rawRHS.replace(/^[ \t]+/,'');
@@ -145,7 +153,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     // Qualified names and multiline struct context still use this occurrence.
     let context=prefixContexts.get(prefix);
     if(!context){
-      const inComment=/\/\/[^\r\n]*$|\/\*[^\r\n]*$|^[ \t]*\*/.test(prefix);
+      const inComment=/\/\/[^\r\n]*$|\/\*[^\r\n]*$|(?:^|[ \t])#[^\r\n]*$|^[ \t]*\*/.test(prefix);
       const explicitType=/\b(?:var|let|const|val)[ \t]+$/.test(prefix)||/\b(?:fn|function|func|def)\b[^\r\n]*\([^)]*$/.test(prefix);
       context={inComment,explicitType,code:explicitType||/(?:\{|,)[ \t]*$/.test(prefix)||
         /\b(?:pub(?:\([^()\r\n]*\))?|public|private|protected|readonly|static)[ \t]+$/.test(prefix)||
