@@ -5,7 +5,7 @@
   "policy": {
     "onMatch": "withhold-and-stop-turn",
     "onInspectionFailure": "block",
-    "onUnsupportedContent": "block"
+    "onUnsupportedContent": "allow"
   },
   "limits": {
     "maxTextBytes": 4194304,

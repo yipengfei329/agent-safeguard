@@ -40,18 +40,22 @@ function literalArgument(rhs) {
   return m && valuePresent(readQuoted(m[1]) ?? '');
 }
 
-export function credentialReason(text, key = '') {
+export function credentialReason(text, key = '', fieldsOnly = false, minimum = 4, matchers = null) {
+  const fieldMatcher=matchers?.field||field, declarationMatcher=matchers?.declaration||declaration, keyMatcher=matchers?.key||credentialKey;
+  const valuePresent = value => value.trim().length >= minimum && !placeholder(value.trim());
+  if (!fieldsOnly) {
   if (privateKey.test(text)) return 'private-key';
   if (signature.test(text)) return 'token-format';
   credentialURL.lastIndex=0;
   for (const m of text.matchAll(credentialURL)) if (!placeholder(m[1])) return 'url-password';
+  }
   // A structured string under a sensitive key is actual data, not source code.
-  if (credentialKey.test(key) && valuePresent(text)) return 'structured-value';
+  if (keyMatcher.test(key) && valuePresent(text)) return 'structured-value';
 
   // Remove only explicit type annotations; keep the initializer and adjacent content.
-  const input=text.replace(declaration, '$1');
-  field.lastIndex=0;
-  for (const m of input.matchAll(field)) {
+  const input=text.replace(declarationMatcher, '$1');
+  fieldMatcher.lastIndex=0;
+  for (const m of input.matchAll(fieldMatcher)) {
     const start=m.index+m[0].length;
     // Bound context work even for minified/generated code on one long line.
     const before=input.slice(Math.max(0,m.index-256),m.index);
@@ -89,7 +93,12 @@ export function credentialReason(text, key = '') {
     }
     if ((isCode || m[2]===':') && /^(?:#|\/\/)/.test(rhs)) continue;
     const quoted=readQuoted(rhs);
-    if (quoted!==null) {if(valuePresent(quoted))return 'literal-value';continue;}
+    if (quoted!==null) {
+      const rest=rhs.slice(quoted.length+2);
+      if (/^(?:Bearer|Basic) $/.test(quoted) && /^[ \t]*\+[ \t]*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[ \t]*(?:;|$)/.test(rest)) continue;
+      if (/^(?:Bearer|Basic) \$\{[A-Za-z_$][\w$.]*\}$/.test(quoted)) continue;
+      if(valuePresent(quoted))return 'literal-value';continue;
+    }
     const newline=rhs.indexOf('\n');
     const firstLine=newline<0?rhs:rhs.slice(0,newline);
     if ((isCode || m[1]) && nullValue.test(firstLine)) continue;
@@ -97,7 +106,9 @@ export function credentialReason(text, key = '') {
     const value=firstLine.match(/^[^\s,;}]+/)?.[0] ?? '';
     if (placeholder(value)) continue;
     if (/^(?:Bearer|Basic)[ \t]+/i.test(firstLine)) {
-      const auth=firstLine.replace(/^(?:Bearer|Basic)[ \t]+/i,'').split(/[\s,;}]/,1)[0];
+      const remainder=firstLine.replace(/^(?:Bearer|Basic)[ \t]+/i,'').trim();
+      if(placeholder(remainder))continue;
+      const auth=remainder.split(/[\s,;}]/,1)[0];
       if (valuePresent(auth)) return 'authorization-value';
       continue;
     }
@@ -113,4 +124,9 @@ export function credentialReason(text, key = '') {
 
 export function hasCredentials(text, key = '') {
   return credentialReason(text,key)!==null;
+}
+
+export function createAssignmentDetector(names, minimum) {
+  const matchers={field:new RegExp(field.source.replaceAll(fields,names),'gi'),declaration:new RegExp(declaration.source.replaceAll(fields,names),'gi'),key:new RegExp('^'+names+'$','i')};
+  return (text,key='')=>credentialReason(text,key,true,minimum,matchers)!==null;
 }

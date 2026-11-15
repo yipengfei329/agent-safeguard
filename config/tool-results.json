@@ -1,11 +1,11 @@
 {
   "$schema": "../schemas/rules.schema.json",
   "schemaVersion": 1,
-  "ruleSetVersion": "0.1.4-tools",
+  "ruleSetVersion": "0.1.5-tools",
   "policy": {
     "onMatch": "withhold-and-stop-turn",
     "onInspectionFailure": "block",
-    "onUnsupportedContent": "block"
+    "onUnsupportedContent": "allow"
   },
   "limits": {
     "maxTextBytes": 4194304,

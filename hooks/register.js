@@ -42,7 +42,7 @@ async function loadEngine($) {
 export function register(on){
   let engine=compile(defaults),ready=false,blocked=false,turnId=null,lastRule=null,initializing=null,lastEvent=null;const observed=new Set();
   const lifecycle={ended:false,timer:null,finish:null};let reporting=false,finalDecision=null;
-  const report=()=>({pluginVersion:'0.1.8',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
+  const report=()=>({pluginVersion:'0.1.11',ready,blocked,ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
   function inspect(value,source,tool){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastEvent=source;}for(const id of r.observed||[])observed.add(id);return r;}
   const notify=()=>lifecycle.publish?.();
   const deny=()=>({deny:'SAFEGUARD_BLOCKED'});
@@ -53,7 +53,7 @@ export function register(on){
     ready = true;notify();
     return next(e);
   }).catch(()=>{blocked=true;notify();ready=false;lastRule='initialization.failed';lastEvent='session.start';return {};});
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.8',ready,blocked,lastEvent,ruleVersion:engine.version,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.1.11',ready,blocked,lastEvent,ruleVersion:engine.version,lastRule,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('turn.start',async ($,e,next)=>{if(!e.agentId)turnId=e.turnId;return next(e);});
   on('tool.call',async ($,e,next)=>{
     if(!ready||blocked)return deny();

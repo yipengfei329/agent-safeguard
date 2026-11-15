@@ -126,7 +126,7 @@
         "data": "synthetic"
       }
     },
-    "block": true
+    "block": false
   },
   {
     "name": "干净编译输出",

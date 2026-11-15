@@ -39,7 +39,10 @@
           "const": "block"
         },
         "onUnsupportedContent": {
-          "const": "block"
+          "enum": [
+            "allow",
+            "block"
+          ]
         }
       }
     },

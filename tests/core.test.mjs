@@ -51,3 +51,15 @@ test('类型声明只豁免自身且保留其他字段和其他规则',()=>{
  for(const value of [{token:'Bool'},{secret:'String'},{secret:'Foundation.Data'},JSON.stringify({secret:'Bool'})])assert.equal(e.scan(value).rule,'security.credentials');
  assert.equal(e.scan('public var secret: Bool = false\n203.0.113.7').rule,'network.address');
 });
+
+// grep's line delimiter plus a CSS pseudo selector must not form a partial IPv6.
+test('CSS grep line prefixes are not truncated IPv6 addresses',()=>{
+ const e=compile();
+ for(const selector of [':root','::before','::after','::first-letter','::placeholder',':hover']) {
+  const output='9:'+selector+'{--live:#5f6b85;color:red}';
+  assert.equal(e.scan(output).blocked,false,selector);
+  assert.equal(e.scan(output+'\n2001:db8::7').rule,'network.address');
+  assert.equal(e.scan(output+'\npassword=SYNTHETIC_PASSWORD').rule,'security.credentials');
+ }
+ for(const address of ['2001:db8::7','[2001:db8::7]:443','9::','[9::]','::ffff:203.0.113.7','2001:db8::7%en0'])assert.equal(e.scan(address).rule,'network.address',address);
+});

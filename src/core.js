@@ -1,5 +1,5 @@
 import ipaddr from 'ipaddr.js';
-import {hasCredentials} from './credentials.js';
+import {hasCredentials,createAssignmentDetector} from './credentials.js';
 import validate from '../dist/validate.js';
 import defaults from '../config/rules.example.json' with {type:'json'};
 export {defaults};
@@ -7,8 +7,9 @@ const encoder=new TextEncoder();
 const failure=()=>({blocked:true,rule:'inspection.failed'});
 function addresses(text){
   const result=[];
-  for(const m of text.matchAll(/(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])|(?<![\w:])(?:[a-fA-F0-9]{0,4}:){2,}[a-fA-F0-9:.]*(?:%[\w.-]+)?/g)) {
-    try { if(ipaddr.isValid(m[0])) result.push(ipaddr.parse(m[0])); } catch {}
+  for(const m of text.matchAll(/(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w]|\.[\w.])|(?<![\w:])(?:[a-fA-F0-9]{0,4}:){2,}[a-fA-F0-9:.]*(?:%[\w.-]+)?(?![\w:%])/g)) {
+    const candidate=m[0].replace(/\.+$/,'');
+    try { if(ipaddr.isValid(candidate)) result.push(ipaddr.parse(candidate)); } catch {}
   }
   return result;
 }
@@ -16,10 +17,15 @@ function matchesRanges(ip,ranges,budget){
   const mapped=ip.kind()==='ipv6'&&ip.isIPv4MappedAddress()?ip.toIPv4Address():null;
   return ranges.some(([net,len])=>{budget();return (ip.kind()===net.kind()&&ip.match(net,len))||(mapped&&net.kind()==='ipv4'&&mapped.match(net,len));});
 }
-const detectors={
-  'device-identifiers': /\b(?:serial(?:number| number)?|udid|hardware\s*uuid|device[_ -]?id)\s*["']?\s*[:=]\s*["']?[a-z0-9][a-z0-9-]{5,}|(?<![\w:])(?:[a-f0-9]{2}:){5}[a-f0-9]{2}(?![\w:])/i,
-  'personal-environment': /\b(?:hostname|computername|localhostname)\s*["']?\s*[:=]\s*["']?[\w.-]+/i
+const identityDetectors={
+  'device-identifiers':createAssignmentDetector('(?:serial(?:number| number)?|udid|hardware[ _]*uuid|device[_ -]?id)',6),
+  'personal-environment':createAssignmentDetector('(?:hostname|computername|localhostname)',1)
 };
+function identity(text,key,name){
+  if(name==='device-identifiers'&&/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/i.test(text))return true;
+  return identityDetectors[name](text,key);
+}
+
 export function compile(config=defaults){
   config=JSON.parse(JSON.stringify(config));
   if(encoder.encode(JSON.stringify(config)).length>1048576 || !validate(config)) throw Error('INVALID_RULE_CONFIG');
@@ -52,23 +58,30 @@ export function compile(config=defaults){
           budget();const d=r.detector;let hit=false;
           if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||matchesRanges(ip,r.ranges,budget)));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
-          if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&!/[a-z0-9_.-]/.test(after))return true;}return false;});}
-          if(d.kind==='builtin'){const candidate=key?key+': '+normalized:normalized;hit=d.name==='credentials'?hasCredentials(normalized,key):detectors[d.name].test(candidate);}
+          if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
+          if(d.kind==='builtin'){hit=d.name==='credentials'?hasCredentials(normalized,key):identity(normalized,key,d.name);}
           if(hit&&r.action==='block')return {blocked:true,rule:r.id};if(hit)observed.add(r.id);
         }
         if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {let obj;try{obj=JSON.parse(s);}catch{}if(obj!==undefined)return visit(obj,1,decode+1);}
         return null;
       }
-      function visit(v,depth=0,decode=0){
+      function visit(v,depth=0,decode=0,inheritedKey=''){
         budget();
         if(++nodes>limits.maxNodes||depth>limits.maxDepth)throw Error();
-        if(typeof v==='string')return text(v,decode);
+        if(typeof v==='string')return text(v,decode,inheritedKey);
+        if(typeof v==='number'&&inheritedKey)return text(String(v),decode,inheritedKey);
         if(v===null||v===undefined||typeof v==='boolean'||typeof v==='number')return null;
         if(typeof v!=='object'||seen.has(v))throw Error();seen.add(v);
-        if(['image','audio','document','resource_link'].includes(v.type)||v.mimeType&& !v.mimeType.startsWith('text/')&&v.mimeType!=='application/json'||v.base64!==undefined)throw Error();
+        const mime=v.mimeType||v.media_type;
+        const unsupported=['image','audio','video','document','resource_link','base64'].includes(v.type)||
+          typeof mime==='string'&&!mime.startsWith('text/')&&mime!=='application/json'||v.base64!==undefined;
+        if(unsupported&&config.policy.onUnsupportedContent==='block')throw Error();
         for(const [k,x] of Object.entries(v)){
+          // Opaque bytes are not text. Keep inspecting captions, URLs, metadata
+          // and adjacent text blocks; an image must not exempt its whole result.
+          if(unsupported&&['data','base64','bytes','buffer'].includes(k))continue;
           const a=text(k,decode);if(a)return a;
-          if(typeof x==='string'){if(++nodes>limits.maxNodes)throw Error();const a=text(x,decode,k);if(a)return a;}else{const b=visit(x,depth+1,decode);if(b)return b;}
+          if(typeof x==='string'){if(++nodes>limits.maxNodes)throw Error();const a=text(x,decode,Array.isArray(v)?inheritedKey:k);if(a)return a;}else{const b=visit(x,depth+1,decode,Array.isArray(v)?inheritedKey:k);if(b)return b;}
         }
         seen.delete(v);return null;
       }

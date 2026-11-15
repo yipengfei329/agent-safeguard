@@ -20,15 +20,28 @@ cases += [
  ('guard-data-code-word', '{"token":"config.token"}', True),
  ('guard-credential-stderr', 'token=SYNTHETIC_TOKEN', True),
 ]
+cases += [('guard-image','SYNTHETIC_IMAGE',True),('guard-css','9::root{--live:#5f6b85}\n12:.map::before{color:red}',True),('guard-css-public','9::root{--live:#5f6b85}\n2001:db8::7',True)]
+cases += [
+ ('guard-identity-code','interface Config { hostname: string; device_id: string; }\nconst hostname = os.hostname();\nconst serialNumber = device.serialNumber;',True),
+ ('guard-authorization-reference','Authorization: Bearer ${SESSION_TOKEN}',True),
+ ('guard-punctuation-ip','connected to 203.0.113.17.',True),
+ ('guard-punctuation-ipv6','peer 2001:db8::7.',True),
+ ('guard-device-value','serialNumber: SYNTHETIC12345',True),
+ ('guard-host-value','hostname: ExampleMac',True),
+ ('guard-array-token','{"token":["SYNTHETIC_TOKEN"]}',True),
+ ('guard-number-password','{"password":123456}',True),
+]
 for name,output,guard in cases:
  with tempfile.TemporaryDirectory(prefix='safeguard-e2e-') as tmp:
   base=pathlib.Path(tmp);requests=[]
+  (base/'fixture.png').write_bytes(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII='))
   class Handler(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
    def do_POST(self):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     has_result=any(isinstance(m.get('content'),list) and any(b.get('type')=='tool_result' for b in m['content']) for m in data.get('messages',[]))
     blocks=[{'type':'text','text':'done'}] if has_result else [{'type':'tool_use','id':'tool_fixture','name':'Bash','input':{'command':"printf %s "+base64.b64encode(output.encode()).decode()+" | base64 --decode"+(" >&2; exit 1" if name in ["guard-stderr","guard-credential-stderr"] else ""),'description':'Synthetic fixture'}}]
+    if name=='guard-image' and not has_result:blocks=[{'type':'tool_use','id':'tool_fixture','name':'Read','input':{'file_path':str(base/'fixture.png')}}]
     message={'id':'msg_fixture','type':'message','role':'assistant','model':data.get('model','test'),'content':blocks,'stop_reason':'end_turn' if has_result else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     if data.get('stream'):
      events=[('message_start',{'type':'message_start','message':{**message,'content':[],'stop_reason':None}})]
@@ -49,7 +62,7 @@ for name,output,guard in cases:
   if name.startswith('guard-local-network'):prompt='Check local service 127.0.0.1 and 192.168.50.1'
   if name=='guard-type-declaration':prompt='Explain public var secret: Bool = false'
   if name.startswith('guard-email'):prompt='Find commits by person@example.invalid'
-  args=[CLAUDE,'-p',prompt,'--no-session-persistence','--setting-sources','','--dangerously-skip-permissions','--tools','Bash','--model','claude-sonnet-4-6','--max-turns','3']
+  args=[CLAUDE,'-p',prompt,'--no-session-persistence','--setting-sources','','--dangerously-skip-permissions','--tools','Bash,Read','--model','claude-sonnet-4-6','--max-turns','3']
   if guard and installed_mode:
    userroot=pathlib.Path.home()/'.claude';testroot=home/'config';(testroot/'plugins').mkdir(parents=True)
    settings=json.loads((userroot/'settings.json').read_text())
@@ -72,7 +85,7 @@ for name,output,guard in cases:
   try:
    p=subprocess.run(args,env=env,cwd=work,capture_output=True,text=True,timeout=40)
    leaked=any('203.0.113.17' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')
-   report.append({'case':name,'requests':len(requests),'sensitive_in_user_payload':leaked,'exit':p.returncode,'stdout_tail':p.stdout[-300:],'stderr_tail':p.stderr[-300:]})
+   report.append({'case':name,'requests':len(requests),'sensitive_in_user_payload':leaked,'exit':p.returncode,'stdout_tail':p.stdout[-300:],'stderr_tail':p.stderr[-300:],'image_submitted':any('image/png' in json.dumps(m.get('content')) for req in requests for m in req.get('messages',[]) if m.get('role')=='user')})
   except subprocess.TimeoutExpired:report.append({'case':name,'requests':len(requests),'timeout':True})
   finally:server.shutdown()
 print(json.dumps(report,indent=2))
@@ -90,4 +103,6 @@ for row in report[3:]:
  if row['case']=='strict-context-compatibility-block':
   assert row.get('requests') in [1,2] and row.get('exit')==0, row['case']
   continue
- assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references'] else 1) and row.get('exit')==0, row['case']
+ assert row.get('requests')==(2 if row['case'] in ['guard-user-path','guard-email','guard-local-network','guard-type-declaration','guard-grep-command-label','guard-code-references','guard-image','guard-css','guard-identity-code','guard-authorization-reference'] else 1) and row.get('exit')==0, row['case']
+
+assert next(r for r in report if r['case']=='guard-image').get('image_submitted'), 'Image must actually reach the follow-up model request'
