@@ -7,12 +7,12 @@ const credentialURL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@?#"'<>]*:([^\s/@?#"'<>]+)@
 // Deliberately specific formats, not generic entropy or every "sk-" identifier.
 const signature = /\b(?:sk-ant-api\d{2}-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{20,})\b/;
 
-export function credentialReason(text,key='',budget=()=>{}) {
+export function credentialReason(text,key='',budget=()=>{},syntax) {
   if(privateKey.test(text))return 'private-key';
   if(signature.test(text))return 'token-format';
   credentialURL.lastIndex=0;
   for(const m of text.matchAll(credentialURL))if(!placeholder(m[1]))return 'url-password';
-  return assignmentReason(text,key,policy,budget);
+  return assignmentReason(text,key,policy,budget,syntax);
 }
 export function hasCredentials(text,key='',budget) {
   return credentialReason(text,key,budget)!==null;

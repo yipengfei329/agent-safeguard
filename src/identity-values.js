@@ -15,5 +15,5 @@ export function createAssignmentDetector(names,minimum,kind='device') {
     },
     allowDynamic:false,
   };
-  return (text,key='',budget)=>assignmentReason(text,key,policy,budget);
+  return (text,key='',budget,syntax)=>assignmentReason(text,key,policy,budget,syntax);
 }

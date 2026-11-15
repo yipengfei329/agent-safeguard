@@ -4,6 +4,11 @@ const source='interface Options { token: "custom-type-discriminant"; }\nconst pa
 const secret='rQ7!mL2_zA9#vC4-pF8@tN6';
 async function step($){const it=$.turn.step({turnId:'t',index:1,model:'test',messageCount:2});while(!(await it.next()).done){}}
 for(const [name,output,blocked,isError] of [
+ ['short-prefixed','const TOKEN: &str = "harbour-4n8r2w6s9z";',false,false],
+ ['numbered-label','const TOKEN: &str = "lanterns-24680";',false,false],
+ ['numbered-error','api_key=meadows_907314',false,true],
+ ['numbered-adjacent','token=lanterns-24680\napi_key='+secret,true,false],
+ ['numbered-password','password=lanterns-24680',true,false],
  ['code',source,false,false],
  ['error-code',source,false,true],
  ['adjacent',source+'\napi_key='+secret,true,false],

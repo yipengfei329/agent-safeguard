@@ -1,4 +1,4 @@
-import {atomicEvidence,phraseEvidence,credentialAtoms} from './credential-shape.js';
+import {atomicEvidence,phraseEvidence,credentialAtoms,labelEvidence} from './credential-shape.js';
 // Candidate-local negative evidence, followed by positive secret evidence.
 // These are syntax/value heuristics, not proof that a credential is invalid.
 // Explicit provider formats and exact rules are checked independently.
@@ -56,6 +56,10 @@ function* templateLiterals(value,budget) {
 
 export function secretValue(value, name='', budget=()=>{}) {
   value=value.trim();
+  const password=/pass(?:word|wd)/i.test(name);
+  // This whole-value shape cannot contain interpolation or a secret atom.
+  // Evaluate it before the more expensive expression/prose classifiers.
+  if(!password&&labelEvidence(value))return false;
   if(value.length<8||placeholder(value)||/^(?:changeme|change_me|placeholder|redacted|your[_ -](?:api[_ -]?key|password|token|secret)(?:[_ -]here)?|insert[_ -](?:api[_ -]?key|password|token|secret)[_ -]here)$/i.test(value))return false;
   if(value.includes('${')||value.includes('{{')){
     for(const part of templateLiterals(value,budget))if(secretValue(part,name,budget))return true;
@@ -66,7 +70,6 @@ export function secretValue(value, name='', budget=()=>{}) {
   if(/^[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)+(?:\([^\r\n]*\))?$/.test(value)||/^[A-Za-z_$][\w$]*\([^\r\n]*\)$/.test(value))return false;
   if(/^(?:&(?:'[A-Za-z_]\w*[ \t]+)?(?:mut[ \t]+)?)?[A-Za-z_]\w*(?:::\w+)*(?:<[^=\r\n]+>)?(?:\[\]|\?)?$/.test(value)&&/[<>&?:]/.test(value))return false;
   if(descriptiveValue(value,name))return false;
-  const password=/pass(?:word|wd)/i.test(name);
   // Authentication schemes describe a carrier, not part of the opaque value.
   if(/^(?:Bearer|Basic)[ \t]+/i.test(value))return secretValue(value.replace(/^(?:Bearer|Basic)[ \t]+/i,''),name,budget);
   if(/[ \t]/.test(value)&&!password)return false;

@@ -8,6 +8,14 @@ export function placeholder(value) { return reference.test(value) || redacted.te
 export function readQuoted(text,raw=false) {
   const quote=text[0];if(!['"',"'",'`'].includes(quote))return null;
   const delimiter=quote!=='`'&&text.startsWith(quote.repeat(3))?quote.repeat(3):quote;
+  // Most source literals have no escapes. Native substring search avoids a JS
+  // character loop while preserving the slow decoder and consumed offsets for
+  // escaped or unfinished literals (including triple-quoted strings).
+  const end=text.indexOf(delimiter,delimiter.length);
+  if(end>=0){
+    const escape=text.indexOf('\\',delimiter.length);
+    if(escape<0||escape>=end)return {value:text.slice(delimiter.length,end),length:end+delimiter.length,complete:true};
+  }
   let value='';
   for(let i=delimiter.length;i<text.length;i++){
     const c=text[i];

@@ -1,0 +1,171 @@
+{
+  "version": "0.1.23",
+  "scope": "synthetic-numbered-label-regression-not-blind-accuracy",
+  "labels": 872,
+  "beforeFalsePositives": 434,
+  "afterFalsePositives": 0,
+  "sensitiveCases": 15,
+  "beforeDetected": 15,
+  "afterDetected": 15,
+  "localReplay": {
+    "before": true,
+    "after": false
+  },
+  "validation": {
+    "core": {
+      "pass": 2535,
+      "fail": 0,
+      "mode": "serial-files"
+    },
+    "native": {
+      "pass": 102,
+      "fail": 1,
+      "mode": "serial-files",
+      "failedTest": "native precision workload latency"
+    },
+    "installation": {
+      "version": "0.1.23",
+      "matchesBuild": true,
+      "rulesUnchanged": true
+    },
+    "budgetControl": {
+      "baselineVersion": "0.1.22",
+      "currentVersion": "0.1.23",
+      "bothExceeded100ms": true,
+      "workload": "1 MiB repeated credential/type source; native tool-result hook",
+      "claim": "No universal within-budget or performance-improvement claim"
+    },
+    "installedRequests": {
+      "cases": 79,
+      "newCases": [
+        {
+          "id": "guard-short-prefixed",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-numbered-label",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-numbered-error",
+          "requests": 2,
+          "exit": 0
+        },
+        {
+          "id": "guard-numbered-password",
+          "requests": 1,
+          "exit": 0
+        },
+        {
+          "id": "guard-numbered-adjacent",
+          "requests": 1,
+          "exit": 0
+        }
+      ]
+    }
+  },
+  "nativeLatency": [
+    {
+      "scope": "native-shared-values",
+      "bytes": 10240,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 1,
+      "p95": 1,
+      "p99": 1
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 10240,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 3,
+      "p95": 4,
+      "p99": 4
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 102400,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 5,
+      "p95": 6,
+      "p99": 6
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 102400,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 19,
+      "p95": 21,
+      "p99": 21
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 1048576,
+      "concurrency": 1,
+      "rules": 6,
+      "samples": 20,
+      "p50": 45,
+      "p95": 47,
+      "p99": 48
+    },
+    {
+      "scope": "native-shared-values",
+      "bytes": 1048576,
+      "concurrency": 4,
+      "rules": 6,
+      "samples": 80,
+      "p50": 182,
+      "p95": 219,
+      "p99": 227
+    },
+    {
+      "scope": "native-credential-precision",
+      "bytes": 10240,
+      "rules": 6,
+      "concurrency": 1,
+      "samples": 20,
+      "p50": 2,
+      "p95": 2,
+      "p99": 4
+    },
+    {
+      "scope": "native-credential-precision",
+      "bytes": 10240,
+      "rules": 6,
+      "concurrency": 4,
+      "samples": 80,
+      "p50": 5,
+      "p95": 6,
+      "p99": 6
+    },
+    {
+      "scope": "native-credential-precision",
+      "bytes": 102400,
+      "rules": 6,
+      "concurrency": 1,
+      "samples": 20,
+      "p50": 10,
+      "p95": 11,
+      "p99": 11
+    },
+    {
+      "scope": "native-credential-precision",
+      "bytes": 102400,
+      "rules": 6,
+      "concurrency": 4,
+      "samples": 80,
+      "p50": 39,
+      "p95": 40,
+      "p99": 43
+    }
+  ]
+}
