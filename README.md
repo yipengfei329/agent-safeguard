@@ -4,7 +4,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.16，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.17，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
@@ -54,9 +54,9 @@ claude plugin uninstall agent-safeguard@agent-safeguard-local --scope user
 
 没有平台标记、只有描述里的 Simulator 字样、不完整/无法解析的记录继续按设备规则检查。这是基于工具输出元数据的判断，无法验证设备物理身份；自定义精确规则仍可拦截指定模拟器 UUID。已有会话需重新启动后加载新引擎。测试与边界见 [模拟器检测说明](docs/simulator-identifiers.md)。
 
-## 凭据检测（0.1.15）
+## 凭据检测（0.1.17）
 
-凭据检测以具体值证据为准，不再仅因字段叫 `token/password` 就阻断。Rust 等语言的类型声明、变量引用、占位符和证据不足的短字符串放行；私钥、认证 URL、已支持的 Token 格式，以及凭据字段中具有明确秘密值特征的内容继续拦截。JSON 转义不再被误当成秘密值的一部分。放行只针对当前表达式，不豁免整行、整个文件或相邻字段。
+凭据检测先提取具体值，再检查秘密特征；无法识别的源代码表达式默认放行。支持 `.string(key)` 等变量表达式放行和 `.string("具体值")` 的值检查，不再仅因字段叫 `token/password` 就阻断。Rust 等语言的类型声明、变量引用、占位符和证据不足的短字符串放行；私钥、认证 URL、已支持的 Token 格式，以及凭据字段中具有明确秘密值特征的内容继续拦截。JSON 转义不再被误当成秘密值的一部分。放行只针对当前表达式，不豁免整行、整个文件或相邻字段。
 
 该策略优先降低误报，因此无法保证拦截短密码、弱密码和未知格式的短 Token；需要强制保护的特定值可以配置 `exact` 规则。
 

@@ -1,5 +1,5 @@
 // Bounded, local syntax heuristics. This is not a full source-language parser.
-// Data fields stay strict; code exemptions apply only to a single RHS, never a file/line.
+// Score concrete values only. Unknown source expressions are not secret values.
 const fields = '(?:password|passwd|access[_-]?token|refresh[_-]?token|token|api[_-]?key|client[_-]?secret|secret|authorization)';
 const types = '(?:(?:Swift\\.)?(?:Bool|String|Int|Int32|Int64|UInt|UInt32|UInt64|Double|Float)|(?:Foundation\\.)?Data|boolean|string|number|bool|str|bytes)';
 const declaration = new RegExp('(\\b(?:var|let|const)[ \\t]+'+fields+')[ \\t]*:[ \\t]*('+types+')(\\?|\\[\\])?([ \\t]*\\|[ \\t]*null)?(?=[ \\t]*(?:[=;{},)\\r\\n]|$))', 'gi');
@@ -57,12 +57,24 @@ function readQuoted(text) {
 function literalArgument(rhs, isValue) {
   // Transparent value containers only; getSecret("ENV_NAME") is not a secret.
   for(let depth=0;depth<4;depth++){
-    const m=rhs.match(/^(?:Data\([ \t]*base64Encoded[ \t]*:|Buffer\.from\(|(?:String::from|String|bytes|Some|Ok|SecretString::new|Secret::new|Cow::Borrowed|Arc::new)\()[ \t]*/);
+    const m=rhs.match(/^(?:Data\([ \t]*base64Encoded[ \t]*:|Buffer\.from\(|(?:(?:[A-Za-z_]\w*\.)*string|\.string|\.some|String::from|String|bytes|Some|Ok|SecretString::new|Secret::new|Cow::Borrowed|Arc::new)\()[ \t]*/);
     if(!m)return false;
     rhs=rhs.slice(m[0].length);
     const value=readQuoted(rhs);if(value!==null)return isValue(value);
   }
   return false;
+}
+
+// Positive recognition of a complete unquoted configuration/log scalar. Do not
+// slice a token out of an arbitrary expression and measure its punctuation as
+// entropy. Quoted strings, structured fields and explicit formats have their
+// own paths, so unknown syntax can safely abstain here without skipping later
+// fields in the same result. Restricted alphabet intentionally trades coverage
+// of exotic unquoted passwords for fewer false positives.
+function bareCredentialValue(rhs){
+  const match=rhs.match(/^([A-Za-z0-9#][A-Za-z0-9_+/.!@#%=-]*)(?=$|[\s,;}])/);
+  if(!match||/^[ \t]+(?:[?!&|+*/=<>.\[(]|->|as\b|instanceof\b)/.test(rhs.slice(match[0].length)))return null;
+  return match[1];
 }
 
 // Bounded recognition of type annotations, including Rust generics, lifetimes,
@@ -182,7 +194,8 @@ export function credentialReason(text, key = '', fieldsOnly = false, minimum = 4
     const expression=/^[A-Za-z_$][\w$]*[ \t]*(?:===?|!==?|&&|\|\|)/.test(firstLine);
     if (literalArgument(firstLine,valuePresent)) return 'encoded-literal';
     if ((isCode || expression) && codeRHS.test(firstLine)) continue;
-    if (valuePresent(value)) return 'unquoted-value';
+    const concrete=fieldsOnly?value:bareCredentialValue(firstLine);
+    if (concrete!==null&&valuePresent(concrete)) return 'unquoted-value';
   }
   return null;
 }

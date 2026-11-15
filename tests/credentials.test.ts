@@ -62,3 +62,14 @@ test('native dense Rust declarations remain below the inspection budget', {timeo
   samples.sort((a,b)=>a-b);console.log(JSON.stringify({scope:'native-rust-types',bytes,rules:6,concurrency:1,p50:samples[9],p95:samples[18],p99:samples[19]}));
  }
 });
+for(const [name,text,blocked] of [
+ ['variable','let result = try await call("synthetic/set", ["api_key": .string(key)])',false],
+ ['unknown','["api_key": .unknown_Ab7_Kd3_Xp9[factory](reference)!]',false],
+ ['literal','["api_key": .string("rQ7!mL2_zA9#vC4-pF8@tN6")]',true],
+])test('expression evidence '+name,async($,on)=>{
+ setup(on);on('tool.call',()=>({result:{stdout:text,stderr:''}}));let calls=0;
+ on('turn.step',async function*(){calls++;return {turnId:'t',index:1,answer:'sent',toolUses:[],stopReason:'end_turn',usage:null};});
+ await $.session.start({cwd:'/work',surface:null,isInteractive:false});const r=await $.tool.call({tool:'Bash',command:'read source'});
+ if(blocked)expect(r.deny).toBe('SAFEGUARD_BLOCKED');else expect(r.result.stdout).toBe(text);
+ await step($);expect(calls).toBe(blocked?0:1);
+});
