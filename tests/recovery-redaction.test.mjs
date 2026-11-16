@@ -21,7 +21,7 @@ test('cycles and unsupported mixed content withheld',()=>{const cycle={peer:'203
 for(const change of [c=>c.schemaVersion=1,c=>c.rules.find(r=>r.action==='redact').sources.push('user.prompt'),c=>c.rules.find(r=>r.action==='redact').detector={kind:'builtin',name:'credentials'},c=>delete c.policy.recovery])test('reject unsafe schema/actions '+String(change),()=>{const c=config();change(c);assert.throws(()=>compile(c));});
 test('migration preserves input rule id, policy, tools and does not mutate',()=>{const c=structuredClone(defaults),original=structuredClone(c),m=migrateRules(c,{redactIds:['network.address']});assert.deepEqual(c,original);assert.equal(m.rules.find(r=>r.id==='network.address').action,'block');assert.deepEqual(m.rules.find(r=>r.action==='redact').detector,c.rules[0].detector);compile(m);assert.throws(()=>migrateRules(c,{redactIds:['absent']}));});
 const human={text:'continue',origin:{kind:'composer'}};
-function active(){const s=createSessionState();assert.equal(s.preparePrompt(human),null);assert(s.commitPrompt(human));s.start({turnId:'one'});return s;}
+function active(){const s=createSessionState();assert.equal(s.preparePrompt(human),null);const ticket=s.commitPrompt(human);assert(ticket);s.start({turnId:'one'});s.finishPrompt(ticket);return s;}
 test('pause needs turn complete and drained tools, old tokens stay invalid',()=>{const s=active(),old=s.begin({});s.pause(old,'network.address');assert.equal(s.preparePrompt(human),'recovery.wait');s.complete({turnId:'one'});assert.equal(s.preparePrompt(human),'recovery.wait');s.finish(old);assert.equal(s.preparePrompt(human),null);assert(s.commitPrompt(human));s.start({turnId:'two'});assert(s.step({turnId:'two'}));assert(!s.step({turnId:'one'}));assert(!s.valid(old));assert.equal(s.stats.resumes,1);});
 for(const kind of ['plugin','peer','peer-send-message','task-notification','scheduled-trigger','coordinator','channel','unclassified',undefined])test('untrusted origin cannot recover '+kind,()=>{const s=active(),o=s.begin({});s.pause(o,'network.address');s.finish(o);s.complete({turnId:'one'});assert.equal(s.preparePrompt({text:'continue',origin:kind?{kind}:undefined}),'recovery.user-required');assert(s.blocked);});
 for(const kind of ['composer','bridge','sdk'])test('trusted host ingress recovers '+kind,()=>{const s=active();s.pauseCurrent('network.address');s.complete({turnId:'one'});const e={text:'continue',origin:{kind}};assert.equal(s.preparePrompt(e),null);assert(s.commitPrompt(e));assert(!s.blocked);});
@@ -40,3 +40,40 @@ for(const kind of ['composer','bridge','sdk','plugin','task-notification',undefi
 for(const reason of ['inspection.exception','inspection.text-limit','inspection.node-limit','inspection.depth-limit','recovery.capacity','context.blocked','tool.hook.failed'])test('other faults cannot become timeout self-checks: '+reason,()=>{const s=active();s.pauseCurrent(reason,true);s.complete({turnId:'one'});assert(!s.canRecheckTimeout(human));});
 test('timeout self-check does not waive context barriers or surviving agents',()=>{const s=active();s.actorStart('a');s.pauseCurrent('inspection.timeout',true);s.complete({turnId:'one'});assert(!s.canRecheckTimeout(human));s.actorStop('a');assert(s.canRecheckTimeout(human));s.pauseCurrent('context.blocked',true);s.pauseCurrent('inspection.timeout',true);assert(!s.canRecheckTimeout(human));});
 test('timeout self-check still requires new prompt grant and leaves old tokens invalid',()=>{const s=active(),old=s.begin({});s.pause(old,'inspection.timeout',true);s.finish(old);s.complete({turnId:'one'});assert(s.canRecheckTimeout(human));assert(s.healthRestored());assert(s.blocked);s.preparePrompt(human);s.commitPrompt(human);s.start({turnId:'new'});assert(s.step({turnId:'new'}));assert(!s.valid(old));});
+
+test('accepted submissions without a model turn never leave a busy grant',()=>{
+ const s=createSessionState();
+ for(let i=0;i<20;i++){assert.equal(s.preparePrompt(human),null);const ticket=s.commitPrompt(human);assert.equal(s.preparePrompt(human),'recovery.busy');assert(!s.admission().awaitingTurn);s.finishPrompt(ticket);assert(!s.admission().submitting);}
+});
+test('initial in-turn submissions do not require another turn.start',()=>{
+ const s=active();
+ for(let i=0;i<4;i++){const e={...human,turnId:'one'};assert.equal(s.preparePrompt(e),null);const ticket=s.commitPrompt(e);s.finishPrompt(ticket);assert(s.step({turnId:'one'}));}
+ s.complete({turnId:'one'});assert.equal(s.preparePrompt(human),null);
+});
+test('late completion of an old submission cannot clear the new submission',()=>{
+ const s=createSessionState();s.preparePrompt(human);const old=s.commitPrompt(human);s.finishPrompt(old);
+ s.preparePrompt(human);const current=s.commitPrompt(human);s.finishPrompt(old);
+ assert.equal(s.preparePrompt(human),'recovery.busy');s.finishPrompt(current);assert.equal(s.preparePrompt(human),null);
+});
+function recovering(){const s=active();s.pauseCurrent('rule');s.complete({turnId:'one'});assert.equal(s.preparePrompt(human),null);return {s,ticket:s.commitPrompt(human)};}
+test('recovery grant expires when submission finishes without starting a turn',()=>{
+ const {s,ticket}=recovering();assert(s.admission().awaitingTurn);s.finishPrompt(ticket);assert(!s.admission().awaitingTurn);
+ s.start({turnId:'automatic'});assert(!s.step({turnId:'automatic'}));s.complete({turnId:'automatic'});
+ assert.equal(s.preparePrompt(human),null);const next=s.commitPrompt(human);s.start({turnId:'safe'});s.finishPrompt(next);assert(s.step({turnId:'safe'}));
+});
+test('recovery grant starts exactly one root turn, never a late continuation',()=>{
+ const {s,ticket}=recovering();s.start({turnId:'safe'});s.finishPrompt(ticket);assert(s.step({turnId:'safe'}));s.complete({turnId:'safe'});
+ s.start({turnId:'late'});assert(!s.step({turnId:'late'}));assert(!s.step({turnId:'one'}));
+});
+for(const extra of [{turnId:'safe'},{wait:true},{}])test('post-recovery in-turn submissions wait without creating grants '+JSON.stringify(extra),()=>{
+ const {s,ticket}=recovering();s.start({turnId:'safe'});s.finishPrompt(ticket);
+ assert.equal(s.preparePrompt({...human,...extra}),'recovery.wait');assert(!s.admission().awaitingTurn);
+ s.complete({turnId:'safe'});assert.equal(s.preparePrompt(human),null);
+});
+for(const origin of ['plugin','peer','task-notification',undefined])test('expired grant cannot be renewed by untrusted origin '+origin,()=>{
+ const {s,ticket}=recovering();s.finishPrompt(ticket);assert.equal(s.preparePrompt({text:'synthetic',origin:origin?{kind:origin}:undefined}),'recovery.user-required');assert(!s.admission().awaitingTurn);
+});
+test('health check cannot clear an unresolved submission or context barrier',()=>{
+ const s=createSessionState();s.preparePrompt(human);const ticket=s.commitPrompt(human);s.pauseCurrent('inspection.timeout',true);assert(!s.healthRestored());s.finishPrompt(ticket);assert(s.healthRestored());
+ s.pauseCurrent('context.blocked',true);assert(!s.healthRestored());
+});

@@ -4,6 +4,17 @@ function configuration(){const c=migrateRules(defaults,{redactIds:['network.addr
 function setup(on,custom,bridge=false,prompt=true,abort=true){const c=custom||configuration();if(!bridge){on('fs.exists',($,e)=>({value:!e.path.endsWith('desktop.json')}));on('fs.read',()=>({value:JSON.stringify(c)}));}on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/synthetic'}));on('turn.start',($,e)=>({turnId:e.turnId}));on('turn.complete',()=>({text:''}));if(abort)on('turn.abort',()=>({value:undefined}));if(prompt)on('prompt.submit',($,e)=>({text:e.text}));}
 async function start($){await $.session.start({cwd:'/synthetic',surface:null,isInteractive:false});}
 const input={text:'safe continuation',origin:{kind:'sdk'},wait:false};
+// The test dispatch API is available in the test body, not inside a hook's $.
+// Hold next() while emitting turn.start, matching the real idle-submit order.
+function promptWithTurn(on){
+ let gate;
+ on('prompt.submit',async($,e)=>{const current=gate;gate=null;if(current){current.enter();await current.held;}return {text:e.text};});
+ return async($,e,turnId)=>{
+  let enter,release;const entered=new Promise(r=>enter=r),held=new Promise(r=>release=r);gate={enter,held};
+  const reply=$.prompt.submit(e);await entered;await $.turn.start({turnId,text:e.text});release();return await reply;
+ };
+}
+
 async function status($){return JSON.parse((await $.command.run({command:'agent-safeguard-status',args:''})).text);}
 async function step($,id){const it=$.turn.step({turnId:id,index:1,model:'test',messageCount:2});let r=await it.next();while(!r.done)r=await it.next();return r.value;}
 const finish=($,turnId)=>$.turn.complete({turnId,answer:'',reason:'aborted',durationMs:1,isAborted:true});
@@ -12,7 +23,7 @@ test('Bash failed output stays an error through safe deny adapter without pausin
 for(const field of ['persistedOutputPath','tailInputPath','rawOutputPath','backgroundTaskId','backgroundOutputPath','structuredContent','bashEditDiff','persistedOutputSize','stdoutHoldsOutputEnd','backgroundedByTurnAbort','timedOutAfterMs','futureUnknownField'])test('external/unknown Bash output is withheld: '+field,async($,on)=>{setup(on);on('tool.call',()=>({result:{stdout:'peer=203.0.113.17',stderr:'',interrupted:false,[field]:'synthetic'}}));await start($);expect((await $.tool.call({tool:'Bash',command:'fixture'})).deny).toContain('SAFEGUARD_BLOCKED');expect((await status($)).blocked).toBe(true);});
 test('unverified MCP result cannot be redacted into a success',async($,on)=>{setup(on);on('tool.call',()=>({result:{content:[{type:'text',text:'peer=203.0.113.17'}]}}));await start($);expect((await $.tool.call({tool:'mcp__fixture__read'})).deny).toContain('SAFEGUARD_BLOCKED');});
 test('clean input after denied user secret is accepted',async($,on)=>{setup(on);await start($);expect((await $.prompt.submit({...input,text:'password=SYNTHETIC_SECRET'})).drop.includes('SAFEGUARD_BLOCKED')).toBe(true);expect((await status($)).blocked).toBe(false);expect((await $.prompt.submit(input)).drop).toBeUndefined();});
-test('ordinary output block pauses until prior turn completes and next safe submission',async($,on)=>{setup(on);on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));let dispatches=0;on('turn.step',async function*(){dispatches++;return {turnId:'second',index:1,answer:'ok',toolUses:[],stopReason:'end_turn',usage:null};});await start($);await $.prompt.submit(input);await $.turn.start({turnId:'first',text:'safe'});expect((await $.tool.call({tool:'Bash',command:'fixture'})).deny).toContain('SAFEGUARD_BLOCKED');await step($,'first');expect(dispatches).toBe(0);expect((await $.prompt.submit(input)).drop.includes('recovery.wait')).toBe(true);await finish($,'first');const reply=await $.prompt.submit(input);expect(reply.drop).toBeUndefined();await $.turn.start({turnId:'second',text:'safe'});await step($,'second');expect(dispatches).toBe(1);expect((await status($)).recovery.resumes).toBe(1);});
+test('ordinary output block pauses until prior turn completes and next safe submission',async($,on)=>{setup(on,null,false,false);const submit=promptWithTurn(on);on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));let dispatches=0;on('turn.step',async function*(){dispatches++;return {turnId:'second',index:1,answer:'ok',toolUses:[],stopReason:'end_turn',usage:null};});await start($);await submit($,input,'first');expect((await $.tool.call({tool:'Bash',command:'fixture'})).deny).toContain('SAFEGUARD_BLOCKED');await step($,'first');expect(dispatches).toBe(0);expect((await $.prompt.submit(input)).drop.includes('recovery.wait')).toBe(true);await finish($,'first');const reply=await submit($,input,'second');expect(reply.drop).toBeUndefined();await step($,'second');expect(dispatches).toBe(1);expect((await status($)).recovery.resumes).toBe(1);});
 test('background prompt cannot clear a paused instance',async($,on)=>{setup(on);on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));await start($);await $.tool.call({tool:'Bash',command:'fixture'});const r=await $.prompt.submit({...input,origin:{kind:'task-notification'}});expect(r.drop.includes('recovery.user-required')).toBe(true);expect((await status($)).blocked).toBe(true);});
 test('pending parallel result prevents resume and never escapes',async($,on)=>{setup(on);let release;const held=new Promise(r=>release=r);on('tool.call',async($,e)=>{if(e.command==='slow'){await held;return {result:'safe'};}return {result:'password=SYNTHETIC_SECRET'};});await start($);const slow=$.tool.call({tool:'Bash',command:'slow'});await $.tool.call({tool:'Bash',command:'fast'});expect((await $.prompt.submit(input)).drop.includes('recovery.wait')).toBe(true);release();expect((await slow).deny).toContain('SAFEGUARD_BLOCKED');expect((await $.prompt.submit(input)).drop).toBeUndefined();});
 test('context block cannot be cleared by ordinary safe message',async($,on)=>{const c=configuration();c.rules.find(r=>r.id==='identity.environment').sources.push('prompt.context');setup(on,c);on('prompt.section',()=>({text:'hostname: SyntheticHost'}));await start($);await $.prompt.section({name:'env_info_simple',text:'unused'});expect((await $.prompt.submit(input)).drop.includes('recovery.health-required')).toBe(true);});
@@ -24,3 +35,32 @@ test('compaction cannot run while paused and may run after safe recovery',async(
 test('another prompt hook rejection does not leave a stale grant',async($,on)=>{setup(on,null,false,false);on('prompt.submit',($,e)=>e.text==='synthetic rejected'?{drop:'another hook'}:{text:e.text});await start($);expect((await $.prompt.submit({...input,text:'synthetic rejected'})).drop).toBeDefined();expect((await $.prompt.submit(input)).drop).toBeUndefined();});
 test('Write input fault returns an actionable refusal before stopping the next step',async($,on)=>{const c=configuration();c.limits.maxTextBytes=128;setup(on,c,false,true,false);let writes=0,aborts=0,dispatches=0;on('tool.call',()=>{writes++;return {result:'ok'};});on('turn.abort',()=>{aborts++;return {value:undefined};});on('turn.step',async function*(){dispatches++;return {turnId:'write',index:1,answer:'unsafe',toolUses:[],stopReason:'end_turn',usage:null};});await start($);await $.prompt.submit(input);await $.turn.start({turnId:'write',text:'safe'});const r=await $.tool.call({tool:'Write',file_path:'/synthetic/Fixture.swift',content:'x'.repeat(256)});expect(r.deny).toContain('inspection.text-limit');expect(r.deny).toContain('Tool not executed');expect(r.deny).toContain('/agent-safeguard-check');expect(r.deny.includes('x'.repeat(64))).toBe(false);expect(writes).toBe(0);expect(aborts).toBe(0);await step($,'write');expect(dispatches).toBe(0);await finish($,'write');expect((await $.prompt.submit(input)).drop).toContain('/agent-safeguard-check');});
 test('output fault distinguishes an executed tool from a rejected input',async($,on)=>{const c=configuration();c.limits.maxTextBytes=128;setup(on,c);let calls=0;on('tool.call',()=>{calls++;return {result:'x'.repeat(256)};});await start($);const r=await $.tool.call({tool:'Bash',command:'fixture'});expect(calls).toBe(1);expect(r.deny).toContain('Tool ran; its result was withheld');expect(r.deny).toContain('inspection.text-limit');});
+
+test('accepted no-turn and in-turn messages do not permanently reject the next prompt',async($,on)=>{
+ setup(on);await start($);
+ for(let i=0;i<3;i++)expect((await $.prompt.submit({...input,text:'Synthetic dashboard question '+i})).drop).toBeUndefined();
+ await $.turn.start({turnId:'running',text:'synthetic'});
+ expect((await $.prompt.submit({...input,turnId:'running'})).drop).toBeUndefined();await finish($,'running');
+ expect((await $.prompt.submit(input)).drop).toBeUndefined();
+ const s=await status($);expect(s.promptAdmission.submitting).toBe(false);expect(s.promptAdmission.awaitingTurn).toBe(false);expect(s.lastRule).toBe(null);
+});
+test('only unresolved submissions report busy, and their completion releases the gate',async($,on)=>{
+ setup(on,null,false,false);let release,entered;const held=new Promise(r=>release=r),waiting=new Promise(r=>entered=r);
+ on('prompt.submit',async($,e)=>{if(e.text==='synthetic slow'){entered();await held;}return {text:e.text};});await start($);
+ const first=$.prompt.submit({...input,text:'synthetic slow'});await waiting;
+ const denied=await $.prompt.submit(input);expect(denied.drop).toContain('SAFEGUARD_WAIT [recovery.busy]');expect((await status($)).promptAdmission.submitting).toBe(true);
+ release();await first;expect((await $.prompt.submit(input)).drop).toBeUndefined();
+});
+test('no-turn recovery never authorizes a later automatic model request',async($,on)=>{
+ setup(on);on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));let dispatches=0;
+ on('turn.step',async function*(){dispatches++;return {turnId:'late',index:1,answer:'unsafe',toolUses:[],stopReason:'end_turn',usage:null};});await start($);
+ await $.tool.call({tool:'Bash',command:'fixture'});expect((await $.prompt.submit(input)).drop).toBeUndefined();
+ await $.turn.start({turnId:'late',text:''});await step($,'late');expect(dispatches).toBe(0);await finish($,'late');
+ expect((await $.prompt.submit(input)).drop).toBeUndefined();expect((await status($)).promptAdmission.awaitingTurn).toBe(false);
+});
+test('post-recovery turn allows idle follow-up but rejects in-turn authorization',async($,on)=>{
+ setup(on,null,false,false);const submit=promptWithTurn(on);
+ on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));await start($);await $.tool.call({tool:'Bash',command:'fixture'});
+ expect((await submit($,input,'safe-1')).drop).toBeUndefined();expect((await $.prompt.submit({...input,turnId:'safe-1'})).drop).toContain('recovery.wait');
+ await finish($,'safe-1');expect((await submit($,input,'safe-2')).drop).toBeUndefined();
+});

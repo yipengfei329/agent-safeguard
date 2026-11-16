@@ -66,7 +66,7 @@ export function register(on){
   let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,lastRule=null,lastReason=null,initializing=null,lastEvent=null;const observed=new Set();
   const recovery=createSessionState();const modern=()=>engine.recovery==='next-safe-user-prompt';const locked=()=>modern()?recovery.blocked:blocked;
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
-  const report=()=>({...(modern()?{schema:3,recovery:recovery.snapshot()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.1',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
+  const report=()=>({...(modern()?{schema:3,recovery:recovery.snapshot()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.2',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
   function capture(rule,event,tool,agentId){
     if(interception&&!modern())return;
     interception={...(modern()?{recordId:crypto.randomUUID()}:{}),at:Date.now(),ruleId:!modern()?label(rule,80):['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','tool.hook.failed','prompt.hook.failed','context.hook.failed'].includes(rule)?rule:'custom.rule',event,tool:label(tool,80),agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
@@ -98,7 +98,7 @@ export function register(on){
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Reason codes contain no values. Keep them in the on-demand status only:
   // existing desktop schema-2 readers reject unknown snapshot properties.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.1',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,lastReason,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.2',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,lastReason,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};
@@ -147,6 +147,7 @@ export function register(on){
     return yield* next(e);
   });
   on('prompt.submit',async ($,e,next)=>{
+    let admission;
     engine = await (initializing ??= loadEngine($));
     ready = true;notify();
     if(!modern()&&blocked||inspect([e.text,...(e.context||[])],'user.prompt').blocked){
@@ -160,11 +161,12 @@ export function register(on){
         const health=engine.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');
         if(!health.blocked)recovery.healthRestored();
       }
-      const reason=recovery.preparePrompt(e);if(reason)return {drop:'SAFEGUARD_PAUSED ['+reason+']; '+(reason==='recovery.health-required'?'run /agent-safeguard-check; if it reports a context fault, fix that context and restart the instance':'submit a safe user message after the previous turn ends')};
-      if(!recovery.commitPrompt(e))return {drop:'SAFEGUARD_RECOVERY_WAIT'};
+      const reason=recovery.preparePrompt(e);if(reason)return {drop:(reason==='recovery.busy'?'SAFEGUARD_WAIT':'SAFEGUARD_PAUSED')+' ['+reason+']; '+(reason==='recovery.busy'?'the previous message submission has not finished; retry after it completes':reason==='recovery.health-required'?'run /agent-safeguard-check; if it reports a context fault, fix that context and restart the instance':'submit a safe user message after the previous turn ends')};
+      admission=recovery.commitPrompt(e);if(!admission)return {drop:'SAFEGUARD_RECOVERY_WAIT'};
       blocked=false;lastRule=null;lastReason=null;lastEvent=null;notify();
     }
-    const result=await next(e);if(modern()&&result.drop)recovery.cancelPrompt();return result;
+    try{return await next(e);}
+    finally{if(admission){recovery.finishPrompt(admission);notify();}}
   }).catch(()=>{fail(ready?'prompt.hook.failed':'initialization.failed','prompt.submit');return {drop:'SAFEGUARD_BLOCKED ['+lastRule+']; run /agent-safeguard-status'};});
   on('prompt.section',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;recovery.pauseCurrent('context.blocked',true);notify();return {text:null};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.section');return {text:null};});
   on('prompt.context',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;recovery.pauseCurrent('context.blocked',true);notify();return {blocks:[]};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.context');return {blocks:[]};});
