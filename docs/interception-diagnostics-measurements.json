@@ -13,7 +13,7 @@
     }
   },
   "recoveryNativeFinalPassed": 35,
-  "rustReleasePassed": 18,
+  "rustReleasePassed": 19,
   "realHostCases": 152,
   "benchmark": [
     {

@@ -461,6 +461,7 @@ impl Desktop {
             );
         }
         if let Some(d) = &self.detail {
+            let live = self.feed.sessions.contains_key(&d.session);
             let d = self.feed.sessions.get(&d.session).unwrap_or(d);
             let identity = d.display_identity(d.has_interception());
             content = content.child(
@@ -475,7 +476,11 @@ impl Desktop {
                 )
                 .child(div().text_size(px(12.)).child(format!(
                     "{} · 插件 {} · 规则版本 {} · {}",
-                    d.connection_label(now),
+                    if live {
+                        d.connection_label(now)
+                    } else {
+                        "历史拦截记录"
+                    },
                     d.plugin_version,
                     d.rule_version,
                     sessions::updated_label(d.updated_at, now)
@@ -490,7 +495,11 @@ impl Desktop {
                         )),
                 )
                 .child(div().text_size(px(12.)).child(d.recovery_label()))
-                .child(div().text_size(px(12.)).child(d.diagnostic_label()))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .child(d.recovery_advice_at(now, live)),
+                )
                 .child(div().text_size(px(12.)).child(d.reason_label()))
                 .when(d.has_interception(), |this| {
                     this.child(div().text_size(px(12.)).child(format!(

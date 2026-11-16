@@ -353,19 +353,29 @@ impl Session {
             .as_ref()
             .map(|r| {
                 format!(
-                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次{}",
-                    r.redacted_results,
-                    r.replacements,
-                    r.pauses,
-                    r.resumes,
-                    if r.can_resume {
-                        " · 可发送新的安全指令"
-                    } else {
-                        ""
-                    }
+                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次",
+                    r.redacted_results, r.replacements, r.pauses, r.resumes
                 )
             })
             .unwrap_or_default()
+    }
+    pub fn recovery_advice_at(&self, time: u64, live: bool) -> String {
+        if !live {
+            return "这是历史拦截记录；请在原会话查看当前状态。".into();
+        }
+        if self.ended {
+            return "此实例已结束；历史拦截不代表新实例的状态。".into();
+        }
+        if !self.fresh(time) {
+            return "状态未更新；请在原会话运行 /agent-safeguard-status 核实。".into();
+        }
+        if self.diagnostic.is_some() {
+            return self.diagnostic_label();
+        }
+        if self.recovery.as_ref().is_some_and(|r| r.can_resume) {
+            return "可发送新的安全消息继续。".into();
+        }
+        "当前版本未提供详细恢复建议；请在原会话查看插件状态。".into()
     }
     pub fn diagnostic_label(&self) -> String {
         self.diagnostic
@@ -778,6 +788,32 @@ mod tests {
             last_event: None,
             last_rule: None,
         }
+    }
+    #[test]
+    fn history_stale_and_ended_snapshots_never_offer_live_recovery() {
+        let mut row = session();
+        row.diagnostic = Some(Diagnostic {
+            cause: None,
+            related_refusals: 0,
+            next_action: "safe-message".into(),
+            admission: Admission {
+                submitting: false,
+                awaiting_turn: false,
+                active_turns: 0,
+                active_agents: 0,
+            },
+        });
+        assert!(
+            row.recovery_advice_at(now(), true)
+                .contains("可发送新的安全消息")
+        );
+        assert!(!row.recovery_advice_at(now(), false).contains("可发送"));
+        assert!(
+            !row.recovery_advice_at(row.updated_at + 45001, true)
+                .contains("可发送")
+        );
+        row.ended = true;
+        assert!(!row.recovery_advice_at(now(), true).contains("可发送"));
     }
     #[test]
     fn schema_four_diagnostics_are_bounded_and_separate_from_history() {
