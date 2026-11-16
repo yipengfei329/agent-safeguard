@@ -13,6 +13,7 @@ export function createSessionState(){
   stats,
   snapshot(){return {state:ended?'ended':current.hard?'faulted':current.paused?(current.pending||current.turns.size?'pausing':'paused'):'active',epoch:current.epoch,inFlight:current.pending,canResume:canResume(),...stats};},
   admission(){return {submitting:accepting||!!submission,awaitingTurn:!!grant,activeTurns:current.turns.size,activeAgents:alive.size};},
+  barrier(){return {hard:current.hard,contextBlocked:current.contextBlocked,timeout:current.reason==='inspection.timeout'};},
   get blocked(){return ended||current.paused;},
   // A per-operation timeout may be rechecked at a new trusted input boundary.
   // Unknown failures, capacity faults and contaminated context stay manual.

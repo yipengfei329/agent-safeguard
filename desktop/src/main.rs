@@ -490,6 +490,8 @@ impl Desktop {
                         )),
                 )
                 .child(div().text_size(px(12.)).child(d.recovery_label()))
+                .child(div().text_size(px(12.)).child(d.diagnostic_label()))
+                .child(div().text_size(px(12.)).child(d.reason_label()))
                 .when(d.has_interception(), |this| {
                     this.child(div().text_size(px(12.)).child(format!(
                         "{} · {}",

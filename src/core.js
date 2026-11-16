@@ -2,6 +2,7 @@ import ipaddr from 'ipaddr.js';
 import {ipMatches} from './ip-matches.js';
 import {createIPLabels,transformIPs,REDACTION_NOTICE} from './redaction.js';
 export {createSessionState} from './session-state.js';
+export {safeRule,safeReason,diagnosticCause,nextAction,actionText,refusal} from './diagnostics.js';
 export {migrateRules} from './migration.js';
 import {bundledGeoIP} from './geoip.js';
 import {credentialReason} from './credentials.js';

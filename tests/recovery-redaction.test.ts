@@ -28,7 +28,7 @@ test('background prompt cannot clear a paused instance',async($,on)=>{setup(on);
 test('pending parallel result prevents resume and never escapes',async($,on)=>{setup(on);let release;const held=new Promise(r=>release=r);on('tool.call',async($,e)=>{if(e.command==='slow'){await held;return {result:'safe'};}return {result:'password=SYNTHETIC_SECRET'};});await start($);const slow=$.tool.call({tool:'Bash',command:'slow'});await $.tool.call({tool:'Bash',command:'fast'});expect((await $.prompt.submit(input)).drop.includes('recovery.wait')).toBe(true);release();expect((await slow).deny).toContain('SAFEGUARD_BLOCKED');expect((await $.prompt.submit(input)).drop).toBeUndefined();});
 test('context block cannot be cleared by ordinary safe message',async($,on)=>{const c=configuration();c.rules.find(r=>r.id==='identity.environment').sources.push('prompt.context');setup(on,c);on('prompt.section',()=>({text:'hostname: SyntheticHost'}));await start($);await $.prompt.section({name:'env_info_simple',text:'unused'});expect((await $.prompt.submit(input)).drop.includes('recovery.health-required')).toBe(true);});
 test('inspection limit produces a fault, not a user-unlock',async($,on)=>{const c=configuration();c.limits.maxTextBytes=128;setup(on,c);on('tool.call',()=>({result:'x'.repeat(256)}));await start($);await $.tool.call({tool:'Bash',command:'fixture'});const s=await status($);expect(s.lastRule).toBe('inspection.failed');expect(s.recovery.state).toBe('faulted');expect((await $.prompt.submit(input)).drop.includes('recovery.health-required')).toBe(true);});
-test('schema 3 archives every block and carries only safe counters',async($,on)=>{const c=configuration(),writes=[],clock=mock.clock(on),bridge={schema:1,rulesPath:'/synthetic/rules.json',statusDir:'/synthetic/status'};setup(on,c,true);on('fs.exists',()=>({value:true}));on('fs.read',($,e)=>({value:JSON.stringify(e.path.endsWith('desktop.json')?bridge:c)}));on('fs.write',($,e)=>{writes.push(e);return {value:undefined};});on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));await start($);await $.tool.call({tool:'Bash',command:'one'});await clock.advance(1100);await $.prompt.submit(input);await $.turn.start({turnId:'next',text:'safe'});await $.tool.call({tool:'Bash',command:'two'});await clock.advance(1100);const archives=writes.filter(w=>w.path.includes('/interceptions/')).map(w=>JSON.parse(w.text));expect(archives.length).toBe(2);expect(archives[0].schema).toBe(3);expect(archives[0].session===archives[1].session).toBe(false);expect(JSON.stringify(writes).includes('SYNTHETIC_SECRET')).toBe(false);});
+test('schema 4 archives every block and carries only safe counters',async($,on)=>{const c=configuration(),writes=[],clock=mock.clock(on),bridge={schema:1,rulesPath:'/synthetic/rules.json',statusDir:'/synthetic/status'};setup(on,c,true);on('fs.exists',()=>({value:true}));on('fs.read',($,e)=>({value:JSON.stringify(e.path.endsWith('desktop.json')?bridge:c)}));on('fs.write',($,e)=>{writes.push(e);return {value:undefined};});on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));await start($);await $.tool.call({tool:'Bash',command:'one'});await clock.advance(1100);await $.prompt.submit(input);await $.turn.start({turnId:'next',text:'safe'});await $.tool.call({tool:'Bash',command:'two'});await clock.advance(1100);const archives=writes.filter(w=>w.path.includes('/interceptions/')).map(w=>JSON.parse(w.text));expect(archives.length).toBe(2);expect(archives[0].schema).toBe(4);expect(archives[0].session===archives[1].session).toBe(false);expect(JSON.stringify(writes).includes('SYNTHETIC_SECRET')).toBe(false);});
 
 test('health check after a scan fault permits a new safe prompt, never replays a held result',async($,on)=>{const c=configuration();c.limits.maxTextBytes=128;setup(on,c);on('tool.call',()=>({result:'x'.repeat(256)}));await start($);await $.tool.call({tool:'Bash',command:'fixture'});const check=await $.command.run({command:'agent-safeguard-check',args:'',origin:{kind:'sdk'}});expect(check.text.includes('SAFEGUARD_HEALTH_OK')).toBe(true);expect((await status($)).blocked).toBe(true);expect((await $.prompt.submit(input)).drop).toBeUndefined();});
 test('compaction cannot run while paused and may run after safe recovery',async($,on)=>{setup(on);on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));let runs=0;on('session.compact',()=>{runs++;return {messages:[{role:'user',text:'safe summary',toolUses:[]}]};});await start($);await $.tool.call({tool:'Bash',command:'fixture'});expect((await $.session.compact({trigger:'manual',messages:[{role:'user',text:'safe summary',toolUses:[]}]})).skip).toBe('SAFEGUARD_BLOCKED');expect(runs).toBe(0);await $.prompt.submit(input);await $.turn.start({turnId:'next',text:'safe'});await $.session.compact({trigger:'manual',messages:[{role:'user',text:'safe summary',toolUses:[]}]});expect(runs).toBe(1);});
@@ -63,4 +63,34 @@ test('post-recovery turn allows idle follow-up but rejects in-turn authorization
  on('tool.call',()=>({result:'password=SYNTHETIC_SECRET'}));await start($);await $.tool.call({tool:'Bash',command:'fixture'});
  expect((await submit($,input,'safe-1')).drop).toBeUndefined();expect((await $.prompt.submit({...input,turnId:'safe-1'})).drop).toContain('recovery.wait');
  await finish($,'safe-1');expect((await submit($,input,'safe-2')).drop).toBeUndefined();
+});
+
+test('Write refusal explains collateral Bash denial and preserves first cause after rejected prompt',async($,on)=>{
+ setup(on);let calls=0;on('tool.call',()=>{calls++;return {result:'ok'};});await start($);
+ const first=await $.tool.call({tool:'Write',file_path:'/synthetic/Fixture.swift',content:'let endpoint = "https://fixture:short@service.example.invalid"'});
+ expect(first.deny).toContain('[url-password]');expect(first.deny).toContain('Tool not executed.');
+ const later=await $.tool.call({tool:'Bash',command:'swift test'});
+ expect(later.deny).toContain('[session.paused]');expect(later.deny).toContain('Earlier pause: security.credentials / url-password at tool.input (Write)');expect(later.deny).toContain('Tool not executed.');expect(calls).toBe(0);
+ await $.prompt.submit({...input,text:'hostname: SyntheticHost'});
+ const paused=await status($);expect(paused.lastRule).toBe('security.credentials');expect(paused.lastReason).toBe('url-password');expect(paused.diagnostic.relatedRefusals).toBe(1);expect(paused.diagnostic.nextAction).toBe('safe-message');
+ expect((await $.prompt.submit(input)).drop).toBeUndefined();const resumed=await status($);expect(resumed.diagnostic.cause).toBe(null);expect(resumed.diagnostic.relatedRefusals).toBe(0);
+ expect((await $.tool.call({tool:'Bash',command:'swift test'})).deny).toBeUndefined();expect(calls).toBe(1);
+});
+test('parallel result notice never says the tool was not executed',async($,on)=>{
+ setup(on);let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+ on('tool.call',async($,e)=>{if(e.command==='slow'){entered();await gate;return {result:'SYNTHETIC_PARALLEL_OUTPUT'};}return {result:'password=SYNTHETIC_SECRET'};});await start($);
+ const pending=$.tool.call({tool:'Bash',command:'slow'});await started;await $.tool.call({tool:'Bash',command:'fast'});
+ expect((await status($)).diagnostic.nextAction).toBe('wait-work');release();const result=await pending;
+ expect(result.deny).toContain('[session.paused]');expect(result.deny).toContain('Tool ran; its result was withheld.');expect(result.deny.includes('SYNTHETIC_PARALLEL_OUTPUT')).toBe(false);
+ expect((await status($)).diagnostic.nextAction).toBe('safe-message');
+});
+test('hook exception does not assert that execution was prevented',async($,on)=>{
+ setup(on);on('tool.call',()=>{throw Error('SYNTHETIC_EXCEPTION_PAYLOAD');});await start($);
+ const r=await $.tool.call({tool:'Bash',command:'fixture'});expect(r.deny).toContain('Execution status is unknown');expect(r.deny.includes('SYNTHETIC_EXCEPTION_PAYLOAD')).toBe(false);expect((await status($)).diagnostic.nextAction).toBe('health-check');
+});
+test('custom rule IDs and external tool names are not exposed by diagnostics',async($,on)=>{
+ const c=configuration();c.rules.push({id:'custom.synthetic-private-label',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['SYNTHETIC_RULE_VALUE'],caseSensitive:true}});setup(on,c);on('tool.call',()=>({result:'SYNTHETIC_RULE_VALUE'}));await start($);
+ const r=await $.tool.call({tool:'mcp__synthetic_private_name__read'});const s=await status($);
+ for(const value of ['custom.synthetic-private-label','mcp__synthetic_private_name__read','SYNTHETIC_RULE_VALUE'])expect(JSON.stringify([r,s]).includes(value)).toBe(false);
+ expect(s.lastRule).toBe('custom.rule');
 });

@@ -9,5 +9,5 @@ for(const [id,value] of samples)test(id+' blocks a mixed result and prevents lat
  await $.session.start({cwd:'/work',surface:null,isInteractive:false});await $.turn.start({turnId:'t',text:'fixture'});
  expect((await $.tool.call({tool:'Read',file_path:'/work/fixture'})).deny).toBe('SAFEGUARD_BLOCKED');
  const it=$.turn.step({turnId:'t',index:1,model:'test',messageCount:2});let r=await it.next();while(!r.done)r=await it.next();expect(calls).toBe(0);
- expect(JSON.parse((await $.command.run({command:'agent-safeguard-status',args:''})).text).lastRule).toBe(id);
+ expect(JSON.parse((await $.command.run({command:'agent-safeguard-status',args:''})).text).lastRule).toBe(id.startsWith('personal.')?'custom.rule':id);
 });
