@@ -1,6 +1,6 @@
 {
   "name": "agent-safeguard",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Local sensitive information protection for coding agents; Claude Code adapter",
   "type": "module",
@@ -13,7 +13,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
-    "test": "npm run build && node --test --test-concurrency=1 tests/core.test.mjs tests/credentials.test.mjs tests/unsupported.test.mjs tests/adversarial.test.mjs tests/geoip.test.mjs tests/credential-confidence.test.mjs tests/simulator.test.mjs tests/credential-expressions.test.mjs tests/credential-corpus.test.mjs tests/credential-boundaries.test.mjs tests/credential-shapes.test.mjs tests/assignment-values.test.mjs tests/numbered-labels.test.mjs tests/dense-source.test.mjs tests/symbolic-values.test.mjs tests/recovery-redaction.test.mjs tests/recovery-migration.test.mjs",
+    "test": "npm run build && node --test --test-concurrency=1 tests/core.test.mjs tests/credentials.test.mjs tests/unsupported.test.mjs tests/adversarial.test.mjs tests/geoip.test.mjs tests/credential-confidence.test.mjs tests/simulator.test.mjs tests/credential-expressions.test.mjs tests/credential-corpus.test.mjs tests/credential-boundaries.test.mjs tests/credential-shapes.test.mjs tests/assignment-values.test.mjs tests/numbered-labels.test.mjs tests/dense-source.test.mjs tests/symbolic-values.test.mjs tests/recovery-redaction.test.mjs tests/recovery-migration.test.mjs tests/diagnostics.test.mjs",
     "test:mods": "node scripts/test-mods.mjs",
     "bench": "node benchmarks/scan.mjs",
     "validate": "claude plugin validate .",
@@ -24,7 +24,8 @@
     "test:recovery": "npm run build && python3 scripts/e2e-recovery.py",
     "bench:recovery": "npm run build && node benchmarks/recovery-native.mjs",
     "test:write-recovery": "npm run build && python3 scripts/e2e-write-recovery.py",
-    "test:admission": "npm run build && python3 scripts/e2e-admission.py"
+    "test:admission": "npm run build && python3 scripts/e2e-admission.py",
+    "test:diagnostics": "npm run build && python3 scripts/e2e-diagnostics.py"
   },
   "bin": {
     "agent-safeguard": "bin/agent-safeguard.mjs"

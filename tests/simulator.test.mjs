@@ -56,3 +56,14 @@ test('simulator scan stays within traversal limits and does not mutate input',()
  const cfg=structuredClone(defaults);cfg.rules.find(r=>r.id==='identity.device').enabled=false;
  assert(!compile(cfg).scan({deviceId:uuid}).blocked);
 });
+
+test('head truncation removes simulator evidence; summary projection excludes identifiers',()=>{
+ const report={devices:[record],testNodes:[{name:'Synthetic test',result:'Passed'}]};
+ const raw=JSON.stringify(report,null,2),head=raw.split('\n').slice(0,5).join('\n');
+ assert.equal(e.scan(head).rule,'identity.device');
+ assert.equal(e.scan(raw).blocked,false);
+ const summary=JSON.stringify({testNodes:report.testNodes});
+ assert.equal(e.scan(summary).blocked,false);assert(!summary.includes(uuid));
+ // A neighboring physical record is not covered by the simulator exception.
+ assert.equal(e.scan({devices:[record,{deviceId:uuid,platform:'iOS'}]}).rule,'identity.device');
+});

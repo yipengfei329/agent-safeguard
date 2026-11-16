@@ -78,6 +78,8 @@ fn valid_text(value: &Option<String>, max: usize) -> bool {
 pub struct Interception {
     #[serde(default)]
     pub record_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     pub at: u64,
     pub rule_id: Option<String>,
     pub event: String,
@@ -100,8 +102,133 @@ pub struct Recovery {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Admission {
+    pub submitting: bool,
+    pub awaiting_turn: bool,
+    pub active_turns: u64,
+    pub active_agents: u64,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Cause {
+    pub rule: Option<String>,
+    pub reason: String,
+    pub event: String,
+    pub tool: Option<String>,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Diagnostic {
+    pub cause: Option<Cause>,
+    pub related_refusals: u64,
+    pub next_action: String,
+    pub admission: Admission,
+}
+fn valid_reason(reason: &str) -> bool {
+    [
+        "rule.match",
+        "inspection.failed",
+        "initialization.failed",
+        "tool.hook.failed",
+        "prompt.hook.failed",
+        "context.hook.failed",
+        "private-key",
+        "token-format",
+        "url-password",
+        "mac-format",
+        "literal-value",
+        "block-scalar",
+        "encoded-literal",
+        "authorization-value",
+        "unquoted-value",
+        "structured-value",
+        "inspection.timeout",
+        "inspection.text-limit",
+        "inspection.node-limit",
+        "inspection.depth-limit",
+        "inspection.invalid-structure",
+        "inspection.unsupported",
+        "inspection.exception",
+        "inspection.limit-or-error",
+        "redaction.unsupported",
+        "redaction.residual",
+        "redaction.unsupported-result",
+    ]
+    .contains(&reason)
+}
+impl Diagnostic {
+    fn valid(&self) -> bool {
+        [
+            "restart",
+            "initializing",
+            "fix-context-restart",
+            "wait-submission",
+            "wait-work",
+            "safe-message-probe",
+            "health-check",
+            "safe-message",
+            "continue",
+        ]
+        .contains(&self.next_action.as_str())
+            && self.cause.as_ref().is_none_or(|c| {
+                c.rule.as_deref().is_none_or(|r| {
+                    [
+                        "network.address",
+                        "identity.device",
+                        "identity.environment",
+                        "security.credentials",
+                        "inspection.failed",
+                        "initialization.failed",
+                        "tool.hook.failed",
+                        "prompt.hook.failed",
+                        "context.hook.failed",
+                        "session.ended",
+                        "custom.rule",
+                    ]
+                    .contains(&r)
+                }) && valid_reason(&c.reason)
+                    && [
+                        "tool.input",
+                        "tool.result",
+                        "tool.call",
+                        "user.prompt",
+                        "session.start",
+                        "prompt.submit",
+                        "prompt.section",
+                        "prompt.context",
+                        "prompt.attachment",
+                        "agent.spawn",
+                        "session.compact",
+                    ]
+                    .contains(&c.event.as_str())
+                    && c.tool.as_deref().is_none_or(|t| {
+                        ["Bash", "Write", "Edit", "Read", "Grep", "Glob"].contains(&t)
+                    })
+            })
+    }
+    fn action_label(&self) -> &'static str {
+        match self.next_action.as_str() {
+            "restart" => "重启插件实例或新建会话",
+            "initializing" => "等待插件初始化，再查看状态",
+            "fix-context-restart" => "修正被拦截的上下文并重启；发送新消息不能解除此状态",
+            "wait-submission" => "等待上一条消息提交结束后重试",
+            "wait-work" => "等待当前轮次、工具和子代理结束，再发送新的安全消息",
+            "safe-message-probe" => {
+                "发送新的安全消息进行本地自检；失败后运行 /agent-safeguard-check"
+            }
+            "health-check" => "运行 /agent-safeguard-check，通过后发送新的安全消息",
+            "safe-message" => "可发送新的安全消息继续；被扣留的调用和结果不会重放",
+            "continue" => "当前会话可继续；历史拦截不代表当前仍被暂停",
+            _ => "查看插件状态",
+        }
+    }
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Session {
     pub schema: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<Diagnostic>,
     #[serde(default)]
     pub recovery: Option<Recovery>,
     #[serde(default)]
@@ -226,38 +353,71 @@ impl Session {
             .as_ref()
             .map(|r| {
                 format!(
-                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次{}",
-                    r.redacted_results,
-                    r.replacements,
-                    r.pauses,
-                    r.resumes,
-                    if r.can_resume {
-                        " · 可发送新的安全指令"
-                    } else {
-                        ""
-                    }
+                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次",
+                    r.redacted_results, r.replacements, r.pauses, r.resumes
                 )
             })
             .unwrap_or_default()
     }
-    pub fn action_label(&self) -> &'static str {
-        if self.matched_rule().is_some_and(|r| {
-            matches!(
-                r,
-                "inspection.failed"
-                    | "initialization.failed"
-                    | "tool.hook.failed"
-                    | "prompt.hook.failed"
-                    | "context.hook.failed"
-            )
-        }) {
-            return "检查异常，已停止继续处理";
+    pub fn recovery_advice_at(&self, time: u64, live: bool) -> String {
+        if !live {
+            return "这是历史拦截记录；请在原会话查看当前状态。".into();
         }
+        if self.ended {
+            return "此实例已结束；历史拦截不代表新实例的状态。".into();
+        }
+        if !self.fresh(time) {
+            return "状态未更新；请在原会话运行 /agent-safeguard-status 核实。".into();
+        }
+        if self.diagnostic.is_some() {
+            return self.diagnostic_label();
+        }
+        if self.recovery.as_ref().is_some_and(|r| r.can_resume) {
+            return "可发送新的安全消息继续。".into();
+        }
+        "当前版本未提供详细恢复建议；请在原会话查看插件状态。".into()
+    }
+    pub fn diagnostic_label(&self) -> String {
+        self.diagnostic
+            .as_ref()
+            .map(|d| {
+                format!(
+                    "下一步：{} · 后续关联拒绝 {} 次 · 活动轮次 {} · 子代理 {}",
+                    d.action_label(),
+                    d.related_refusals,
+                    d.admission.active_turns,
+                    d.admission.active_agents
+                )
+            })
+            .unwrap_or_default()
+    }
+    pub fn reason_label(&self) -> String {
+        self.interception
+            .as_ref()
+            .and_then(|e| e.reason.as_deref())
+            .map(|r| {
+                let hint = match r {
+                    "url-password" => "URL 含密码；示例域名不会豁免凭据",
+                    "inspection.timeout" => "本地扫描超时，结果未放行",
+                    "inspection.text-limit" => "输出超过文本扫描上限",
+                    "inspection.unsupported" => "当前策略拒绝未支持的内容",
+                    "redaction.unsupported-result" => "此返回结构不支持安全替换",
+                    _ if self.matched_rule() == Some("identity.device") => {
+                        "设备标识未满足豁免条件；截断记录不能确认模拟器平台"
+                    }
+                    _ => "命中本地检测规则，未记录原始值",
+                };
+                format!("原因：{hint}（{r}）")
+            })
+            .unwrap_or_default()
+    }
+    pub fn action_label(&self) -> &'static str {
         match self.event_name() {
-            "tool.input" => "已拒绝工具调用",
-            "tool.result" => "已扣留工具结果",
-            "user.prompt" | "prompt.submit" => "已阻止输入提交",
+            "tool.input" => "工具未执行，输入已拒绝",
+            "tool.result" => "工具已执行，结果已扣留",
+            "user.prompt" | "prompt.submit" => "消息未提交",
             "prompt.context" | "prompt.section" | "prompt.attachment" => "已扣留上下文",
+            "tool.call" | "agent.spawn" => "处理异常，执行状态未确认",
             _ => "插件已阻断",
         }
     }
@@ -300,9 +460,12 @@ impl Session {
             return Err("STATUS_INPUT_LIMIT");
         }
         let s: Self = serde_json::from_slice(bytes).map_err(|_| "STATUS_FORMAT_REJECTED")?;
-        if ![1, 2, 3].contains(&s.schema)
+        if ![1, 2, 3, 4].contains(&s.schema)
+            || s.diagnostic
+                .as_ref()
+                .is_some_and(|d| s.schema != 4 || !d.valid())
             || s.recovery.as_ref().is_some_and(|r| {
-                s.schema != 3
+                ![3, 4].contains(&s.schema)
                     || !["active", "pausing", "paused", "faulted", "ended"]
                         .contains(&r.state.as_str())
                     || r.epoch == 0
@@ -310,6 +473,9 @@ impl Session {
             || !s.identity.valid()
             || s.interception.as_ref().is_some_and(|e| {
                 !e.identity.valid()
+                    || e.reason
+                        .as_ref()
+                        .is_some_and(|r| s.schema != 4 || !valid_reason(r))
                     || e.record_id.as_ref().is_some_and(|id| {
                         id.len() != 36 || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
                     })
@@ -606,6 +772,7 @@ mod tests {
     use super::*;
     fn session() -> Session {
         Session {
+            diagnostic: None,
             recovery: None,
             schema: 1,
             identity: Identity::default(),
@@ -621,6 +788,74 @@ mod tests {
             last_event: None,
             last_rule: None,
         }
+    }
+    #[test]
+    fn history_stale_and_ended_snapshots_never_offer_live_recovery() {
+        let mut row = session();
+        row.diagnostic = Some(Diagnostic {
+            cause: None,
+            related_refusals: 0,
+            next_action: "safe-message".into(),
+            admission: Admission {
+                submitting: false,
+                awaiting_turn: false,
+                active_turns: 0,
+                active_agents: 0,
+            },
+        });
+        assert!(
+            row.recovery_advice_at(now(), true)
+                .contains("可发送新的安全消息")
+        );
+        assert!(!row.recovery_advice_at(now(), false).contains("可发送"));
+        assert!(
+            !row.recovery_advice_at(row.updated_at + 45001, true)
+                .contains("可发送")
+        );
+        row.ended = true;
+        assert!(!row.recovery_advice_at(now(), true).contains("可发送"));
+    }
+    #[test]
+    fn schema_four_diagnostics_are_bounded_and_separate_from_history() {
+        let mut row = session();
+        row.schema = 4;
+        row.diagnostic = Some(Diagnostic {
+            cause: Some(Cause {
+                rule: Some("identity.device".into()),
+                reason: "literal-value".into(),
+                event: "tool.result".into(),
+                tool: Some("Bash".into()),
+            }),
+            related_refusals: 2,
+            next_action: "safe-message".into(),
+            admission: Admission {
+                submitting: false,
+                awaiting_turn: false,
+                active_turns: 0,
+                active_agents: 0,
+            },
+        });
+        assert!(Session::parse(&serde_json::to_vec(&row).unwrap()).is_ok());
+        assert!(row.diagnostic_label().contains("可发送新的安全消息"));
+        let value = serde_json::to_value(&row).unwrap();
+        for field in ["rule", "reason", "event", "tool"] {
+            let mut bad = value.clone();
+            bad["diagnostic"]["cause"][field] = serde_json::json!("SYNTHETIC_PRIVATE_VALUE");
+            assert!(Session::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+        }
+        for field in ["nextAction", "stdout"] {
+            let mut bad = value.clone();
+            bad["diagnostic"][field] = serde_json::json!("SYNTHETIC_PRIVATE_VALUE");
+            assert!(Session::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+        }
+        row.schema = 3;
+        assert!(Session::parse(&serde_json::to_vec(&row).unwrap()).is_err());
+        row.schema = 4;
+        row.diagnostic.as_mut().unwrap().next_action = "continue".into();
+        assert!(
+            row.diagnostic_label()
+                .contains("历史拦截不代表当前仍被暂停")
+        );
     }
     #[test]
     fn schema_three_preserves_multiple_events_from_one_instance() {
@@ -641,6 +876,7 @@ mod tests {
         let mut rows = Vec::new();
         for i in 1..=2 {
             row.interception = Some(Interception {
+                reason: None,
                 record_id: Some(format!("00000000-0000-4000-9000-{i:012}")),
                 at: now(),
                 rule_id: Some("custom.rule".into()),
@@ -707,6 +943,7 @@ mod tests {
             ..Default::default()
         };
         row.interception = Some(Interception {
+            reason: None,
             record_id: None,
             at: now(),
             rule_id: Some("custom.fixture".into()),
