@@ -1,6 +1,6 @@
-# Agent Safeguard 桌面端 0.3.0
+# Agent Safeguard 桌面端 0.3.1
 
-Rust + GPUI Kit 管理端。三页为概览、安装管理、规则编辑，管理本机 Claude Code 用户范围插件。随应用内置插件 0.2.0，与 `src/core.js` / `src/credentials.js` 共用检测引擎；适配层提供状态上报和桌面规则路径。
+Rust + GPUI Kit 管理端。三页为概览、安装管理、规则编辑，管理本机 Claude Code 用户范围插件。随应用内置插件 0.2.1，与 `src/core.js` / `src/credentials.js` 共用检测引擎；适配层提供状态上报和桌面规则路径。
 
 ## 使用流程
 

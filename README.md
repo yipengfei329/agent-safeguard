@@ -4,11 +4,15 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.0，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.1，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
+
+## 输入扫描超时恢复（0.2.1）
+
+修复 Write 等输入检查故障被宿主显示为“Nothing refused it”的问题：先返回明确拒绝，再拦住后续模型请求。单次扫描超时后，旧工作结束、下一条可信用户消息通过检查，并且当前规则快照的本地自检通过，才可恢复。资源超限、内部异常、上下文污染仍保留原来的故障门禁；不重放旧工具，也不提高扫描预算。详见 [修复与验证记录](docs/timeout-recovery.md)。
 
 ## IP 脱敏与拦截后恢复（0.2.0）
 
@@ -18,7 +22,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 ## 自动加载
 
-Rust + GPUI Kit 桌面端 0.3.0 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
+Rust + GPUI Kit 桌面端 0.3.1 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
 
 安装器会安装并启用 `agent-safeguard@agent-safeguard-local`，scope 为 user。完成安装后直接运行 `claude` 即可；同机 Claude App 的本地 Code 会话按官方共享设置机制加载，无需启动器、开机服务或额外参数。已有会话需重启或新建会话后加载；没有改动运行中的会话。
 
