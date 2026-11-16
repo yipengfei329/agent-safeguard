@@ -76,6 +76,8 @@ fn valid_text(value: &Option<String>, max: usize) -> bool {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Interception {
+    #[serde(default)]
+    pub record_id: Option<String>,
     pub at: u64,
     pub rule_id: Option<String>,
     pub event: String,
@@ -86,8 +88,22 @@ pub struct Interception {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Recovery {
+    pub state: String,
+    pub epoch: u64,
+    pub in_flight: u64,
+    pub can_resume: bool,
+    pub pauses: u64,
+    pub resumes: u64,
+    pub redacted_results: u64,
+    pub replacements: u64,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Session {
     pub schema: u8,
+    #[serde(default)]
+    pub recovery: Option<Recovery>,
     #[serde(default)]
     pub identity: Identity,
     #[serde(default)]
@@ -199,6 +215,31 @@ impl Session {
             .or(self.last_event.as_deref())
             .unwrap_or("")
     }
+    pub fn history_key(&self) -> String {
+        self.interception
+            .as_ref()
+            .and_then(|e| e.record_id.clone())
+            .unwrap_or_else(|| self.session.clone())
+    }
+    pub fn recovery_label(&self) -> String {
+        self.recovery
+            .as_ref()
+            .map(|r| {
+                format!(
+                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次{}",
+                    r.redacted_results,
+                    r.replacements,
+                    r.pauses,
+                    r.resumes,
+                    if r.can_resume {
+                        " · 可发送新的安全指令"
+                    } else {
+                        ""
+                    }
+                )
+            })
+            .unwrap_or_default()
+    }
     pub fn action_label(&self) -> &'static str {
         if self.matched_rule().is_some_and(|r| {
             matches!(
@@ -259,10 +300,19 @@ impl Session {
             return Err("STATUS_INPUT_LIMIT");
         }
         let s: Self = serde_json::from_slice(bytes).map_err(|_| "STATUS_FORMAT_REJECTED")?;
-        if ![1, 2].contains(&s.schema)
+        if ![1, 2, 3].contains(&s.schema)
+            || s.recovery.as_ref().is_some_and(|r| {
+                s.schema != 3
+                    || !["active", "pausing", "paused", "faulted", "ended"]
+                        .contains(&r.state.as_str())
+                    || r.epoch == 0
+            })
             || !s.identity.valid()
             || s.interception.as_ref().is_some_and(|e| {
                 !e.identity.valid()
+                    || e.record_id.as_ref().is_some_and(|id| {
+                        id.len() != 36 || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                    })
                     || e.at == 0
                     || e.at > now() + 5000
                     || !valid_text(&e.tool, 80)
@@ -285,6 +335,8 @@ impl Session {
                         "prompt.section",
                         "prompt.context",
                         "prompt.attachment",
+                        "agent.spawn",
+                        "session.compact",
                     ]
                     .contains(&e.event.as_str())
             })
@@ -309,6 +361,8 @@ impl Session {
                 "prompt.section",
                 "prompt.context",
                 "prompt.attachment",
+                "agent.spawn",
+                "session.compact",
             ]
             .contains(&x)
         }) {
@@ -349,7 +403,11 @@ impl Session {
         {
             "检查异常"
         } else if self.blocked {
-            "已阻断"
+            if self.recovery.as_ref().is_some_and(|r| r.can_resume) {
+                "已暂停，可继续"
+            } else {
+                "已阻断"
+            }
         } else if self.ready {
             "已连接"
         } else {
@@ -384,14 +442,14 @@ impl Feed {
                 self.history_warning = invalid.then_some("部分拦截记录暂时无法读取");
                 for row in rows {
                     if row.has_interception() {
-                        self.interceptions.insert(row.session.clone(), row);
+                        self.interceptions.insert(row.history_key(), row);
                     }
                 }
                 if self.interceptions.len() > 500 {
                     let mut ordered: Vec<_> = self
                         .interceptions
                         .values()
-                        .map(|r| (r.blocked_at(), r.session.clone()))
+                        .map(|r| (r.blocked_at(), r.history_key()))
                         .collect();
                     ordered.sort();
                     for (_, id) in ordered.into_iter().take(self.interceptions.len() - 500) {
@@ -548,6 +606,7 @@ mod tests {
     use super::*;
     fn session() -> Session {
         Session {
+            recovery: None,
             schema: 1,
             identity: Identity::default(),
             interception: None,
@@ -562,6 +621,45 @@ mod tests {
             last_event: None,
             last_rule: None,
         }
+    }
+    #[test]
+    fn schema_three_preserves_multiple_events_from_one_instance() {
+        let mut row = session();
+        row.schema = 3;
+        row.recovery = Some(Recovery {
+            state: "paused".into(),
+            epoch: 2,
+            in_flight: 0,
+            can_resume: true,
+            pauses: 2,
+            resumes: 1,
+            redacted_results: 3,
+            replacements: 6,
+        });
+        row.blocked = true;
+        assert_eq!(row.state(now()), "已暂停，可继续");
+        let mut rows = Vec::new();
+        for i in 1..=2 {
+            row.interception = Some(Interception {
+                record_id: Some(format!("00000000-0000-4000-9000-{i:012}")),
+                at: now(),
+                rule_id: Some("custom.rule".into()),
+                event: "tool.result".into(),
+                tool: Some("Bash".into()),
+                agent_id: None,
+                agent_type: None,
+                identity: Identity::default(),
+            });
+            rows.push(Session::parse(&serde_json::to_vec(&row).unwrap()).unwrap());
+        }
+        let mut feed = Feed::default();
+        feed.update_history(Ok((rows, false)));
+        assert_eq!(feed.interceptions.len(), 2);
+        let mut unsafe_row = serde_json::to_value(&row).unwrap();
+        unsafe_row["recovery"]["rawAddress"] = serde_json::json!("SYNTHETIC_VALUE");
+        assert!(Session::parse(&serde_json::to_vec(&unsafe_row).unwrap()).is_err());
+        row.recovery.as_mut().unwrap().state = "unknown".into();
+        assert!(Session::parse(&serde_json::to_vec(&row).unwrap()).is_err());
     }
     #[test]
     fn stale_or_failed_is_never_connected() {
@@ -609,6 +707,7 @@ mod tests {
             ..Default::default()
         };
         row.interception = Some(Interception {
+            record_id: None,
             at: now(),
             rule_id: Some("custom.fixture".into()),
             event: "tool.result".into(),

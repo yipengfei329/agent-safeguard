@@ -102,10 +102,25 @@ impl Document {
             .iter()
             .filter(|r| !self.rows().iter().any(|x| x["id"] == r["id"]))
             .count();
-        format!("将关闭 {disabled} 条 · 删除 {removed} 条 · 保存后新会话生效")
+        format!(
+            "将关闭 {disabled} 条 · 删除 {removed} 条 · 脱敏 {} 条 · 恢复策略 {} · 保存后新会话生效",
+            self.rows()
+                .iter()
+                .filter(|r| r["action"] == "redact")
+                .count(),
+            self.config["policy"]["recovery"]
+                .as_str()
+                .unwrap_or("session-lock")
+        )
     }
 }
 pub fn builtin(r: &Value) -> Option<(&'static str, &'static str)> {
+    if r["detector"]["kind"] == "ip"
+        && r["sources"] == json!(["tool.result"])
+        && r["action"] == "redact"
+    {
+        return Some(("IP 结果脱敏", "支持的诊断文本替换为代号；其余结果扣留"));
+    }
     if r["action"] != "block" {
         return None;
     }
@@ -148,6 +163,13 @@ pub fn editable(r: &Value) -> bool {
     builtin(r).is_some() || simple_exact(r)
 }
 impl Manager {
+    pub fn recovery_draft(&self, redact: bool) -> Result<Document> {
+        let mut doc = self.document()?;
+        let text = serde_json::to_string(&doc.config).map_err(|_| "RULE_CONFIG_REJECTED")?;
+        doc.config = serde_json::from_str(&crate::validator::migrate(&text, redact)?)
+            .map_err(|_| "RULE_CONFIG_REJECTED")?;
+        Ok(doc)
+    }
     fn rule_bytes(&self) -> Result<Vec<u8>> {
         if self.rules_path().exists() {
             read_limited(&self.rules_path())
@@ -175,6 +197,20 @@ impl Manager {
     }
     pub fn commit_document(&self, mut draft: Document) -> Result<Document> {
         let _lock = self.lock()?;
+        if draft.config["schemaVersion"] == 2 && !self.demo {
+            let bytes = read_limited(
+                &self
+                    .market
+                    .join("plugins/agent-safeguard/.claude-plugin/plugin.json"),
+            )
+            .map_err(|_| "RECOVERY_REQUIRES_UPDATE")?;
+            let manifest: Value =
+                serde_json::from_slice(&bytes).map_err(|_| "RECOVERY_REQUIRES_UPDATE")?;
+            if crate::backend::version(manifest["version"].as_str().unwrap_or(""))? < vec![0, 2, 0]
+            {
+                return Err("RECOVERY_REQUIRES_UPDATE");
+            }
+        }
         if digest(&self.rule_bytes()?) != draft.baseline {
             return Err("RULES_CHANGED_EXTERNALLY");
         }
@@ -227,6 +263,48 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recovery_migration_is_a_reviewable_draft_and_preserves_custom_rules() {
+        let temp = tempfile::tempdir().unwrap();
+        let m = Manager::new(true, Some(temp.path().into())).unwrap();
+        let mut original = m.document().unwrap();
+        original
+            .edit(None, "虚构规则".into(), "SYNTHETIC_MIGRATION".into())
+            .unwrap();
+        let original = m.commit_document(original).unwrap();
+        let before = std::fs::read(m.rules_path()).unwrap();
+        let draft = m.recovery_draft(true).unwrap();
+        assert_eq!(std::fs::read(m.rules_path()).unwrap(), before);
+        assert_eq!(draft.names, original.names);
+        assert_eq!(draft.config["schemaVersion"], 2);
+        assert!(draft.rows().iter().any(|r| r["action"] == "redact"));
+        for rule in original
+            .rows()
+            .iter()
+            .filter(|r| r["detector"]["kind"] != "ip")
+        {
+            assert!(draft.rows().contains(rule));
+        }
+        let saved = m.commit_document(draft).unwrap();
+        assert_eq!(
+            m.previous_document(saved.baseline).unwrap().config,
+            original.config
+        );
+    }
+    #[test]
+    fn old_installation_cannot_save_v2() {
+        let temp = tempfile::tempdir().unwrap();
+        let m = Manager::new(false, Some(temp.path().into())).unwrap();
+        let manifest = m
+            .market
+            .join("plugins/agent-safeguard/.claude-plugin/plugin.json");
+        atomic_write(&manifest, br#"{"version":"0.1.25"}"#).unwrap();
+        assert!(matches!(
+            m.commit_document(m.recovery_draft(false).unwrap()),
+            Err("RECOVERY_REQUIRES_UPDATE")
+        ));
+        assert!(!m.rules_path().exists());
+    }
     #[test]
     fn management_lock_and_private_file_permissions() {
         let temp = tempfile::tempdir().unwrap();

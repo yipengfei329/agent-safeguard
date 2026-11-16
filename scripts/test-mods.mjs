@@ -5,11 +5,14 @@ import {mkdtempSync,mkdirSync,cpSync,copyFileSync,readdirSync,unlinkSync,rmSync}
 import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';import {spawnSync} from 'node:child_process';
 const root=fileURLToPath(new URL('..',import.meta.url));
+const selected=process.argv.slice(2).map(s=>s.replace(/^tests\//,''));
+const files=readdirSync(join(root,'tests')).filter(f=>/\.test\.tsx?$/.test(f)&&(!selected.length||selected.includes(f))).sort();
+if(!files.length||selected.some(f=>!files.includes(f)))throw Error('UNKNOWN_TEST_FILE');
 const dir=mkdtempSync(join(tmpdir(),'safeguard-mods-'));let failed=0;
 try{
  for(const path of ['hooks','.claude-plugin','fixtures','dist'])cpSync(join(root,path),join(dir,path),{recursive:true});
  mkdirSync(join(dir,'tests'));
- for(const file of readdirSync(join(root,'tests')).filter(f=>/\.test\.tsx?$/.test(f)).sort()){
+ for(const file of files){
   const target=join(dir,'tests',file);copyFileSync(join(root,'tests',file),target);
   const result=spawnSync('claude',['plugin','test',dir],{stdio:'inherit'});
   if(result.status!==0)failed++;unlinkSync(target);

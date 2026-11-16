@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Agent Safeguard rules v1",
+  "title": "Agent Safeguard rules v1/v2",
   "description": "Locally validated rule configuration; CIDR ranges are compiled at load time.",
   "type": "object",
   "additionalProperties": false,
@@ -16,7 +16,10 @@
       "type": "string"
     },
     "schemaVersion": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "ruleSetVersion": {
       "type": "string",
@@ -42,6 +45,12 @@
           "enum": [
             "allow",
             "block"
+          ]
+        },
+        "recovery": {
+          "enum": [
+            "next-safe-user-prompt",
+            "session-lock"
           ]
         }
       }
@@ -149,7 +158,8 @@
         "action": {
           "enum": [
             "block",
-            "observe"
+            "observe",
+            "redact"
           ]
         },
         "detector": {
@@ -285,5 +295,57 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "policy": {
+            "not": {
+              "required": [
+                "recovery"
+              ]
+            }
+          },
+          "rules": {
+            "items": {
+              "properties": {
+                "action": {
+                  "enum": [
+                    "block",
+                    "observe"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "schemaVersion": {
+            "const": 2
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "policy": {
+            "required": [
+              "recovery"
+            ]
+          }
+        }
+      }
+    }
+  ]
 }
