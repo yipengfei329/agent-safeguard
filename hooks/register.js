@@ -63,10 +63,10 @@ async function loadEngine($) {
   return compile(JSON.parse(raw));
 }
 export function register(on){
-  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,turnId=null,lastRule=null,lastReason=null,initializing=null,lastEvent=null;const observed=new Set();
+  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,lastRule=null,lastReason=null,initializing=null,lastEvent=null;const observed=new Set();
   const recovery=createSessionState();const modern=()=>engine.recovery==='next-safe-user-prompt';const locked=()=>modern()?recovery.blocked:blocked;
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
-  const report=()=>({...(modern()?{schema:3,recovery:recovery.snapshot()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.0',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
+  const report=()=>({...(modern()?{schema:3,recovery:recovery.snapshot()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.1',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||lastEvent,ruleVersion:engine.version,lastRule:(finalDecision?.rule||lastRule)&&(['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','prompt.hook.failed','context.hook.failed','session.ended','tool.hook.failed'].includes(finalDecision?.rule||lastRule)?(finalDecision?.rule||lastRule):'custom.rule')});
   function capture(rule,event,tool,agentId){
     if(interception&&!modern())return;
     interception={...(modern()?{recordId:crypto.randomUUID()}:{}),at:Date.now(),ruleId:!modern()?label(rule,80):['network.address','identity.device','identity.environment','security.credentials','inspection.failed','initialization.failed','tool.hook.failed','prompt.hook.failed','context.hook.failed'].includes(rule)?rule:'custom.rule',event,tool:label(tool,80),agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
@@ -80,7 +80,13 @@ export function register(on){
   on('classic.CwdChanged',($,e,next)=>{lifecycle.identity.project=label(e.new_cwd,512);notify();return next(e);});
   on('classic.SubagentStart',($,e,next)=>{recovery.actorStart(e.agent_id);if(actors.size<64)actors.set(e.agent_id,label(e.agent_type,80));return next(e);});
   const notify=()=>lifecycle.publish?.(interception!==null);
-  const deny=()=>({deny:'SAFEGUARD_BLOCKED'});
+  const deny=(phase)=>{
+    if(!modern()||!phase)return {deny:'SAFEGUARD_BLOCKED'};
+    const fault=lastRule==='inspection.failed';
+    const reason=fault&&['inspection.timeout','inspection.text-limit','inspection.node-limit','inspection.depth-limit','inspection.invalid-structure','inspection.unsupported','inspection.exception'].includes(lastReason)?lastReason:fault?'inspection.failed':'rule.match';
+    const action=reason==='inspection.timeout'?'Send a new safe message to run a local health check and continue. If that check fails, run /agent-safeguard-check.':fault?'Run /agent-safeguard-check, then submit a new safe message.':'After the current turn ends, submit a new safe message to continue.';
+    return {deny:`SAFEGUARD_BLOCKED [${reason}]: ${phase==='input'?'Tool not executed.':'Tool ran; its result was withheld.'} ${action} Held operations and results are not replayed.`};
+  };
   on('classic.SubagentStop',($,e,next)=>{recovery.actorStop(e.agent_id);return next(e);});
   on('session.start',async ($,e,next)=>{
     if(!reporting){reporting=true;lifecycle.identity.project=label(e.cwd,512);void startReports($,report,lifecycle);}
@@ -92,21 +98,21 @@ export function register(on){
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Reason codes contain no values. Keep them in the on-demand status only:
   // existing desktop schema-2 readers reject unknown snapshot properties.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.0',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,lastReason,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.1',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule,lastReason,observedRules:[...observed],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};
-      if(!recovery.healthRestored())return {text:'SAFEGUARD_RECOVERY_WAIT'};
+      if(!recovery.healthRestored())return {text:'SAFEGUARD_RECOVERY_WAIT: wait for active work to end; context faults require fixing the context and restarting the instance'};
       engine=candidate;ready=true;initializing=Promise.resolve(candidate);notify();return {text:'SAFEGUARD_HEALTH_OK: submit a new safe message; held results remain withheld'};
     }catch{return {text:'SAFEGUARD_CHECK_FAILED'};}
   });
-  on('turn.start',async ($,e,next)=>{if(!e.agentId)turnId=e.turnId;recovery.start(e);return next(e);});
+  on('turn.start',async ($,e,next)=>{recovery.start(e);return next(e);});
   on('turn.complete',($,e,next)=>{recovery.complete(e);notify();return next(e);});
   on('tool.call',async ($,e,next)=>{
     if(!ready||locked())return deny();
     const owner=modern()?recovery.begin(e):null;if(modern()&&!owner)return deny();
     try{
-      if(inspect(e,'tool.input',e.tool,e.agentId).blocked){blocked=true;recovery.pause(owner,lastRule,lastRule==='inspection.failed');notify();if(turnId)await $.turn.abort({turnId});return deny();}
+      if(inspect(e,'tool.input',e.tool,e.agentId).blocked){blocked=true;recovery.pause(owner,lastReason||lastRule,lastRule==='inspection.failed');notify();return deny('input');}
       const result=await next(e);
       if(locked()||(modern()&&!recovery.valid(owner)))return deny();
       const decision=engine.inspectAndTransform(result,'tool.result',e.tool);
@@ -130,7 +136,9 @@ export function register(on){
         decision.rule='network.address';decision.reason='redaction.unsupported-result';
       }
       lastRule=decision.rule;lastReason=decision.reason||null;lastEvent='tool.result';capture(lastRule,lastEvent,e.tool,e.agentId);
-      blocked=true;recovery.pause(owner,lastReason||lastRule,lastRule==='inspection.failed');notify();if(turnId)await $.turn.abort({turnId});return deny();
+      // Return the refusal before stopping future model steps; do not abort
+      // this dispatch and lose the reason to the host's cancellation placeholder.
+      blocked=true;recovery.pause(owner,lastReason||lastRule,lastRule==='inspection.failed');notify();return deny('result');
     }catch{fail('tool.hook.failed','tool.call');return deny();}
     finally{recovery.finish(owner);notify();}
   }).catch(()=>{fail('tool.hook.failed','tool.call');return deny();});
@@ -146,7 +154,13 @@ export function register(on){
       return {drop:'SAFEGUARD_BLOCKED ['+(lastRule||'session.locked')+']; edit the message or run /agent-safeguard-status'};
     }
     if(modern()){
-      const reason=recovery.preparePrompt(e);if(reason)return {drop:'SAFEGUARD_PAUSED ['+reason+']; submit a safe user message after the previous turn ends'};
+      // Only a drained timeout can retry. This uses the existing rule snapshot,
+      // never releases the held call, and follows a successful scan of this prompt.
+      if(recovery.canRecheckTimeout(e)){
+        const health=engine.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');
+        if(!health.blocked)recovery.healthRestored();
+      }
+      const reason=recovery.preparePrompt(e);if(reason)return {drop:'SAFEGUARD_PAUSED ['+reason+']; '+(reason==='recovery.health-required'?'run /agent-safeguard-check; if it reports a context fault, fix that context and restart the instance':'submit a safe user message after the previous turn ends')};
       if(!recovery.commitPrompt(e))return {drop:'SAFEGUARD_RECOVERY_WAIT'};
       blocked=false;lastRule=null;lastReason=null;lastEvent=null;notify();
     }
