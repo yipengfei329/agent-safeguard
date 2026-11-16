@@ -2,7 +2,7 @@
 use crate::backend::Result;
 use rquickjs::{Context, Runtime};
 use std::time::{Duration, Instant};
-pub fn validate(text: &str) -> Result<()> {
+fn execute(text: &str, expression: &str) -> Result<String> {
     if text.len() > 1_048_576 {
         return Err("INPUT_LIMIT");
     }
@@ -19,6 +19,20 @@ pub fn validate(text: &str) -> Result<()> {
         ctx.eval::<(), _>(r#"globalThis.TextEncoder=class { encode(value=''){const out=[];for(const c of String(value)){let n=c.codePointAt(0);if(n>=0xD800&&n<=0xDFFF)n=0xFFFD;if(n<128)out.push(n);else if(n<2048)out.push(192|(n>>6),128|(n&63));else if(n<65536)out.push(224|(n>>12),128|((n>>6)&63),128|(n&63));else out.push(240|(n>>18),128|((n>>12)&63),128|((n>>6)&63),128|(n&63));}return new Uint8Array(out)}};"#)?;
         ctx.eval::<(), _>(include_str!("../../dist/core.desktop.js"))?;
         ctx.globals().set("configText", text)?;
-        ctx.eval::<(), _>("SafeguardCore.compile(JSON.parse(configText)); void 0")
+        ctx.eval::<String, _>(expression)
     }).map_err(|_| "RULE_CONFIG_REJECTED")
+}
+
+pub fn validate(text: &str) -> Result<()> {
+    execute(text, "SafeguardCore.compile(JSON.parse(configText)); 'ok'").map(|_| ())
+}
+pub fn migrate(text: &str, redact: bool) -> Result<String> {
+    execute(
+        text,
+        if redact {
+            "const c=JSON.parse(configText); SafeguardCore.compile(c); const ids=c.rules.filter(r=>r.action==='block'&&r.detector.kind==='ip'&&r.sources.includes('tool.result')).map(r=>r.id); const m=SafeguardCore.migrateRules(c,{redactIds:ids}); SafeguardCore.compile(m); JSON.stringify(m)"
+        } else {
+            "const c=JSON.parse(configText); SafeguardCore.compile(c); const m=SafeguardCore.migrateRules(c); SafeguardCore.compile(m); JSON.stringify(m)"
+        },
+    )
 }

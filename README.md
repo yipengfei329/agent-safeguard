@@ -4,15 +4,21 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.1.25，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.0，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
 
+## IP 脱敏与拦截后恢复（0.2.0）
+
+新增可选择启用的 schema 2：支持的同步 Bash 诊断输出可在本地替换受保护 IP，并在重检后继续任务；其余敏感规则仍扣留结果。普通拦截只暂停当前轮次，旧调用和子代理结束后，下一条安全消息可继续原会话。错误、超时和上下文污染保留独立故障门禁。
+
+已有规则保持原行为；先更新插件，再从当前配置生成、review 并保存迁移草稿，新插件实例加载。桌面也提供草稿按钮。操作步骤、宿主限制及验证范围见 [使用说明](docs/recovery-redaction.md) 和 [验收记录](docs/recovery-redaction-acceptance.md)。
+
 ## 自动加载
 
-Rust + GPUI Kit 桌面端 0.2.0 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
+Rust + GPUI Kit 桌面端 0.3.0 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
 
 安装器会安装并启用 `agent-safeguard@agent-safeguard-local`，scope 为 user。完成安装后直接运行 `claude` 即可；同机 Claude App 的本地 Code 会话按官方共享设置机制加载，无需启动器、开机服务或额外参数。已有会话需重启或新建会话后加载；没有改动运行中的会话。
 
@@ -120,6 +126,8 @@ npm run rules -- rollback --user
 npm test
 npm run test:mods
 npm run test:e2e
+npm run test:recovery
+npm run bench:recovery
 npm run bench
 npm run validate
 ```
@@ -130,7 +138,7 @@ npm run validate
 
 - 已验证：成功和失败结果、文本及嵌套 JSON、常见地址与设备信息、并发阻断状态、配置错误、下一步模型请求阻断。
 - 不保证：任意编码或混淆、图片/PDF 内容识别、遥测、附件上传、工具直接联网、历史会话、恶意插件、插件缺席或 worker 崩溃后的宿主行为。
-- 未支持：运行中规则热切换、全量历史上下文重验、持久审计、自动脱敏和个人资产自动发现。观察计数仅保存在当前插件实例中。
+- 未支持：运行中规则热切换、全量历史上下文重验、完整持久审计、通用敏感信息脱敏和个人资产自动发现。观察计数仅保存在当前插件实例中。
 - 工具结果扣留不撤销已完成的命令；模型已知内容无法撤回；网络请求本身的出口 IP 不由本插件隐藏。
 - 扫描有 4 MiB/深度/节点/100 ms 协作式预算，超限扣留。预算不能抢占单条同步操作，也不能保证宿主失效时仍关闭出站。
 

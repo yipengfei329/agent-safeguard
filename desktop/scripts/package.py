@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Build a local macOS prototype. No signing identity or publication required."""
-import argparse, json, pathlib, platform, plistlib, shutil, subprocess
+import argparse, json, pathlib, platform, plistlib, shutil, subprocess, tomllib
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 DESKTOP=ROOT/'desktop'
 OUT=DESKTOP/'artifacts'
+VERSION=tomllib.loads((DESKTOP/'Cargo.toml').read_text())['package']['version']
 p=argparse.ArgumentParser();p.add_argument('--skip-build',action='store_true');args=p.parse_args()
 cargo=shutil.which('cargo') or str(pathlib.Path.home()/'.cargo/bin/cargo')
 if not args.skip_build:
@@ -17,7 +18,7 @@ mac=app/'Contents/MacOS';res=app/'Contents/Resources'
 mac.mkdir(parents=True);res.mkdir()
 shutil.copy2(DESKTOP/'target/release/agent-safeguard-desktop',mac/'agent-safeguard-desktop')
 with (app/'Contents/Info.plist').open('wb') as f:
-    plistlib.dump({'CFBundleName':'Agent Safeguard','CFBundleDisplayName':'Agent Safeguard','CFBundleIdentifier':'dev.agent-safeguard.prototype','CFBundleExecutable':'agent-safeguard-desktop','CFBundlePackageType':'APPL','CFBundleShortVersionString':'0.2.0','CFBundleVersion':'2','NSHighResolutionCapable':True},f)
+    plistlib.dump({'CFBundleName':'Agent Safeguard','CFBundleDisplayName':'Agent Safeguard','CFBundleIdentifier':'dev.agent-safeguard.prototype','CFBundleExecutable':'agent-safeguard-desktop','CFBundlePackageType':'APPL','CFBundleShortVersionString':VERSION,'CFBundleVersion':VERSION,'NSHighResolutionCapable':True},f)
 shutil.copy2(ROOT/'LICENSE',res/'LICENSE')
 # Ship dependency notices/licenses, without local paths or account identifiers.
 metadata=json.loads(subprocess.check_output([cargo,'metadata','--format-version','1','--locked'],cwd=DESKTOP))

@@ -16,6 +16,15 @@ add('unicode-values',lambda c:c['rules'][4]['detector'].update(values=['虚构�
 add('rule-budget',lambda c:c['limits'].update(maxRules=1))
 add('invalid-domain',lambda c:c['rules'][5]['detector'].update(suffixes=['invalid']))
 add('extra-field',lambda c:c.update(unknown=True))
+v2=json.loads((root/'config/redact-results.json').read_text())
+cases.append(('valid-recovery-redaction',v2))
+for name,change in [
+ ('legacy-redact',lambda c:c.update(schemaVersion=1)),
+ ('redact-input',lambda c:next(r for r in c['rules'] if r['action']=='redact').update(sources=['user.prompt'])),
+ ('redact-credential',lambda c:next(r for r in c['rules'] if r['action']=='redact').update(detector={'kind':'builtin','name':'credentials'})),
+ ('missing-recovery',lambda c:c['policy'].pop('recovery')),
+]:
+ cfg=copy.deepcopy(v2);change(cfg);cases.append((name,cfg))
 node="import {compile} from './dist/core.js';import {readFileSync} from 'node:fs';try{compile(JSON.parse(readFileSync(0,'utf8')))}catch{process.exitCode=2}"
 for name,cfg in cases:
  text=json.dumps(cfg)

@@ -222,7 +222,7 @@ impl Desktop {
                     }
                     Ok(Outcome::Previous(d)) => {
                         s.draft = Some(d);
-                        s.notice = "上一版已载入草稿，请检查变化后保存。".into();
+                        s.notice = "已载入草稿，请检查变化后保存。".into();
                     }
                     Ok(Outcome::Program(m, h)) => {
                         s.manager = m;
@@ -349,7 +349,7 @@ impl Desktop {
             .map(|(id, r)| (id.clone(), r))
             .collect();
         for row in self.feed.sessions.values().filter(|r| r.has_interception()) {
-            logs.entry(row.session.clone()).or_insert(row);
+            logs.entry(row.history_key()).or_insert(row);
         }
         let mut logs: Vec<_> = logs.into_values().collect();
         logs.sort_by_key(|r| (std::cmp::Reverse(r.blocked_at()), &r.session));
@@ -489,6 +489,7 @@ impl Desktop {
                             identity.host_session_id.as_deref().unwrap_or("旧版未提供")
                         )),
                 )
+                .child(div().text_size(px(12.)).child(d.recovery_label()))
                 .when(d.has_interception(), |this| {
                     this.child(div().text_size(px(12.)).child(format!(
                         "{} · {}",
@@ -1017,6 +1018,29 @@ impl Desktop {
                         })),
                 ),
         );
+        content = content.child(
+            div()
+                .flex()
+                .gap_2()
+                .child(
+                    Button::new("recovery-draft")
+                        .small()
+                        .label("生成安全恢复草稿")
+                        .disabled(self.busy || self.dirty() || self.edit || self.draft.is_none())
+                        .on_click(cx.listener(|s, _, w, cx| {
+                            s.work(w, cx, |m| m.recovery_draft(false).map(Outcome::Previous));
+                        })),
+                )
+                .child(
+                    Button::new("redaction-draft")
+                        .small()
+                        .label("生成恢复与 IP 脱敏草稿")
+                        .disabled(self.busy || self.dirty() || self.edit || self.draft.is_none())
+                        .on_click(cx.listener(|s, _, w, cx| {
+                            s.work(w, cx, |m| m.recovery_draft(true).map(Outcome::Previous));
+                        })),
+                ),
+        );
         let Some(d) = &self.draft else {
             return content
                 .child(self.panel(
@@ -1355,6 +1379,7 @@ fn error_text(code: &str) -> &'static str {
         "DESKTOP_UPDATE_REQUIRED" => "此插件包含检测引擎变更，请先升级桌面应用以保持规则校验一致。",
         "UPDATE_DOWNLOAD_FAILED" => "更新包下载未完成，当前插件保持不变。",
         "RULES_CHANGED_EXTERNALLY" => "规则已被其他程序修改。草稿仍保留，请重新读取后再编辑。",
+        "RECOVERY_REQUIRES_UPDATE" => "请先在安装管理中更新插件，再保存恢复与脱敏配置。",
         "ANOTHER_OPERATION_RUNNING" => "另一个管理操作正在进行，请稍后重试。",
         "RULE_FIELDS_REQUIRED" => "请填写名称和非空文本；名称最多 60 字，文本最多 8 KiB。",
         "RULE_CONFIG_REJECTED" => "规则校验未通过，原配置未被替换。",
