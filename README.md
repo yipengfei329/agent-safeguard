@@ -4,11 +4,15 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.4，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.5，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
+
+## 错误码字段误报（0.2.5）
+
+修复错误常量名以 `Password` 结尾时，将其诊断标签误判为密码的情况。只联合识别明确的错误字段名称和完整的错误码形态；普通密码字段、不透明值、相邻字段、独立凭据格式和自定义精确规则仍须检查。扫描缓存按字段角色与语法证据隔离，避免错误标签影响后续密码判断。细节与验证见 [本版说明](docs/diagnostic-labels.md)。
 
 ## 模板误报与命中位置（0.2.4）
 
@@ -36,7 +40,7 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 ## 自动加载
 
-Rust + GPUI Kit 桌面端 0.3.4 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
+Rust + GPUI Kit 桌面端 0.3.5 已接通安装管理、会话概览、拦截历史和表单式规则编辑，并采用紧凑的深色界面。检测引擎保持不变；桌面内嵌规则校验，普通用户无需安装 Node。当前已验证本机 macOS，三平台正式发布仍待验收。使用方法与边界见 [桌面端说明](desktop/README.md)，验证记录见 [桌面一期验收](docs/desktop-v1-acceptance.md)。
 
 安装器会安装并启用 `agent-safeguard@agent-safeguard-local`，scope 为 user。完成安装后直接运行 `claude` 即可；同机 Claude App 的本地 Code 会话按官方共享设置机制加载，无需启动器、开机服务或额外参数。已有会话需重启或新建会话后加载；没有改动运行中的会话。
 

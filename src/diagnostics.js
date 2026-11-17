@@ -36,5 +36,6 @@ export function refusal({effect,cause,action,related=false,stale=false,afterActi
  const code=stale?'recovery.stale-owner':related?'session.paused':cause?.reason||'session.unavailable';
  const origin=cause?`${related?' Earlier pause:':' Cause:'} ${cause.rule} / ${cause.reason} at ${cause.event}${cause.tool?' ('+cause.tool+')':''}.`:'';
  const hint=cause?.rule==='identity.device'?' Device identifier detected without an applicable exemption; truncated records cannot establish simulator platform.':cause?.reason==='url-password'?' URL password detected; example domains do not exempt credentials.':'';
- return `SAFEGUARD_BLOCKED [${code}]: ${outcome}${origin}${hint}${cause?.location?' Location: scanned text '+cause.location.textIndex+', line '+cause.location.line+', '+cause.location.field+' field (not a source-file line).':''} ${actionText(action)}${afterAction&&afterAction!==action?' Then: '+actionText(afterAction):''} Held operations and results are not replayed.`;
+ const extraAction=afterAction&&afterAction!==action&&!(action==='wait-work'&&afterAction==='safe-message');
+ return `SAFEGUARD_BLOCKED [${code}]: ${outcome}${origin}${hint}${cause?.location?' Location: scanned text '+cause.location.textIndex+', line '+cause.location.line+', '+cause.location.field+' field (not a source-file line).':''} ${actionText(action)}${extraAction?' Then: '+actionText(afterAction):''} Held operations and results are not replayed.`;
 }

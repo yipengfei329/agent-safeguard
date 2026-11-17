@@ -28,3 +28,9 @@ test('diagnostic location admits only numeric coordinates and fixed field roles'
  assert.deepEqual(cause.location,{textIndex:1,line:2,field:'token'});assert(!JSON.stringify(cause).includes('SYNTHETIC_PRIVATE'));
  assert(refusal({effect:'result',cause,action:'safe-message'}).includes('not a source-file line'));
 });
+test('waiting notice avoids duplicate resubmission text but retains a required health check',()=>{
+ const plain=refusal({effect:'input',action:'wait-work',afterAction:'safe-message'});
+ assert(!plain.includes('Then:'));assert(plain.includes('then submit a new safe message'));
+ const fault=refusal({effect:'input',action:'wait-work',afterAction:'health-check'});
+ assert(fault.includes('Then: Run /agent-safeguard-check'));
+});

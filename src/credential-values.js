@@ -64,8 +64,16 @@ function templateLabel(part,name) {
   return label!==part&&label.length>=3&&descriptiveValue(label,name);
 }
 
+function diagnosticLabel(value,name) {
+  if(value.length>128||!/^(?:[a-z]{2,24}(?:[-_][a-z]{2,24}){1,5}|[A-Z]{2,24}(?:[-_][A-Z]{2,24}){1,5})$/.test(value))return false;
+  const words=value.toLowerCase().split(/[-_]/);
+  const roles=/pass(?:word|wd)/i.test(name)?['password','passwd']:['token','secret','key','authorization'];
+  return words.some(w=>roles.includes(w))&&words.some(w=>['no','not','missing','invalid','required','denied','unavailable','disabled','expired','error','without'].includes(w));
+}
+
 export function secretValue(value, name='', budget=()=>{}, evidence='value') {
   value=value.trim();
+  if(evidence==='diagnostic-label'&&diagnosticLabel(value,name))return false;
   // Only an explicit name slot can reinterpret an uppercase identifier. Plain
   // fields, quoted passwords and structured values retain value semantics.
   if(evidence==='symbol-name'&&symbolName(value))return false;
