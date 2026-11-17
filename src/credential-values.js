@@ -55,6 +55,15 @@ function* templateLiterals(value,budget) {
   yield value.slice(start);
 }
 
+// A separator adjoining an interpolation is a boundary, not extra secret
+// material. Only recognize an already-supported descriptive token label at
+// that boundary; do not trim arbitrary credentials or exempt whole templates.
+function templateLabel(part,name) {
+  if(/pass(?:word|wd)/i.test(name)||part.length>256)return false;
+  const label=part.replace(/^[-_]+|[-_]+$/g,'');
+  return label!==part&&label.length>=3&&descriptiveValue(label,name);
+}
+
 export function secretValue(value, name='', budget=()=>{}, evidence='value') {
   value=value.trim();
   // Only an explicit name slot can reinterpret an uppercase identifier. Plain
@@ -66,7 +75,7 @@ export function secretValue(value, name='', budget=()=>{}, evidence='value') {
   if(!password&&labelEvidence(value))return false;
   if(value.length<8||placeholder(value)||/^(?:changeme|change_me|placeholder|redacted|your[_ -](?:api[_ -]?key|password|token|secret)(?:[_ -]here)?|insert[_ -](?:api[_ -]?key|password|token|secret)[_ -]here)$/i.test(value))return false;
   if(value.includes('${')||value.includes('{{')){
-    for(const part of templateLiterals(value,budget))if(secretValue(part,name,budget))return true;
+    for(const part of templateLiterals(value,budget))if(!templateLabel(part,name)&&secretValue(part,name,budget))return true;
     return false;
   }
   if(symbolReference(value))return false;

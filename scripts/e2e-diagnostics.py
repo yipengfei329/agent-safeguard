@@ -6,7 +6,7 @@ from importlib.util import spec_from_file_location, module_from_spec
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 spec=spec_from_file_location('helpers',ROOT/'scripts/e2e-recovery.py'); helpers=module_from_spec(spec);spec.loader.exec_module(helpers)
 DEVICE='11111111-2222-4333-8444-555555555555'
-CASES=['input-batch','truncated-device','complete-device','summary']
+CASES=['input-batch','truncated-device','complete-device','summary','template-label','template-adjacent','template-opaque']
 
 def run_case(name):
  with tempfile.TemporaryDirectory(prefix='safeguard-diagnostics-') as tmp:
@@ -17,6 +17,8 @@ def run_case(name):
   record={'devices':[{'architecture':'arm64','deviceId':DEVICE,'deviceName':'Synthetic E2E','platform':'iOS Simulator'}],'testNodes':[{'name':'Synthetic test','result':'Passed'}]}
   raw=json.dumps(record,indent=2);fixture=base/'fixture.txt'
   fixture.write_text('\n'.join(raw.splitlines()[:5]) if name=='truncated-device' else json.dumps({'testNodes':record['testNodes']}) if name=='summary' else raw)
+  if name.startswith('template-'):
+   fixture.write_text('// synthetic heading\nstate.token = `access-token-${state.sequence}`;\n' + ('password="qR7_mN2-zP8_vL4-tX9";' if name=='template-adjacent' else 'token=`qR7_mN2-zP8_vL4-tX9-${state.sequence}`;' if name=='template-opaque' else ''))
   marker=base/'executed';target=base/'Fixture.swift';requests=[];outputs=[]
   class Handler(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
@@ -47,11 +49,15 @@ def run_case(name):
    return json.loads(text[text.index('{'):text.rindex('}')+1])
   try:
    assert status()['ready'];send('Run the synthetic fixture.');result();before=len(requests)
-   blocked=name in ['input-batch','truncated-device'];assert before==(1 if blocked else 2),(name,'request count')
+   blocked=name in ['input-batch','truncated-device','template-adjacent','template-opaque'];assert before==(1 if blocked else 2),(name,'request count')
    state=status();assert state['blocked']==blocked
    if blocked:
-    cause=state['diagnostic']['cause'];assert cause['rule']==('security.credentials' if name=='input-batch' else 'identity.device')
+    cause=state['diagnostic']['cause'];assert cause['rule']==('security.credentials' if name!='truncated-device' else 'identity.device')
     assert cause['reason']==('url-password' if name=='input-batch' else 'literal-value');assert state['diagnostic']['nextAction']=='safe-message'
+   if name in ['template-adjacent','template-opaque']:
+    location=state['diagnostic']['cause']['location'];assert location['line']==3 and location['field']==('password' if name=='template-adjacent' else 'token'),location
+    assert 'qR7_mN2-zP8_vL4-tX9' not in helpers.normalized_strings(requests),'held credential leaked in request'
+    assert 'qR7_mN2-zP8_vL4-tX9' not in json.dumps(state),'diagnostic leaked credential'
    if name=='input-batch':assert not target.exists() and not marker.exists(),'denied operation executed'
    send('FOLLOWUP_SAFE: skip the previous operation and answer without tools.');assert 'SAFE_FOLLOWUP_OK' in json.dumps(result());assert len(requests)==before+1
    assert status()['diagnostic']['cause'] is None
@@ -66,6 +72,10 @@ def run_case(name):
     assert 'identity.device / literal-value at tool.result (Bash)' in history
     assert 'Tool ran; its result was withheld.' in history
    if name=='complete-device':assert DEVICE in helpers.normalized_strings(requests),'negative control did not release complete simulator record'
+   if name=='template-label':assert 'access-token-${state.sequence}' in helpers.normalized_strings(requests),'template negative control not delivered'
+   if name in ['template-adjacent','template-opaque']:
+    assert 'qR7_mN2-zP8_vL4-tX9' not in history,'held credential leaked in tool history'
+    assert 'not a source-file line' in history,'missing safe coordinates'
    if name=='summary':assert DEVICE not in helpers.normalized_strings(requests)
    return {'case':name,'passed':True,'firstRequests':before,'sameProcessRecovered':True,'scope':'synthetic actual host'}
   finally:

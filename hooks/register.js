@@ -56,31 +56,31 @@ async function loadEngine($) {
   const path = bridge?.rulesPath || $.plugin.root + '/local/rules.json';
   if (!(await $.fs.exists(path))) {
     if (bridge) throw Error('BRIDGE_RULES_MISSING');
-    return compile(defaults);
+    return compile(defaults,{diagnostics:true});
   }
   const raw = await $.fs.read(path, {length:1048577});
   if (new TextEncoder().encode(raw).length > 1048576) throw Error('CONFIG_LIMIT');
-  return compile(JSON.parse(raw));
+  return compile(JSON.parse(raw),{diagnostics:true});
 }
 export function register(on){
-  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,lastRule=null,lastReason=null,initializing=null,lastEvent=null;const observed=new Set();
+  let engine={version:defaults.ruleSetVersion,geoip:null},ready=false,blocked=false,lastRule=null,lastReason=null,lastLocation=null,initializing=null,lastEvent=null;const observed=new Set();
   const recovery=createSessionState();const modern=()=>engine.recovery==='next-safe-user-prompt';const locked=()=>modern()?recovery.blocked:blocked;
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
   let barrierCause=null,lastDetection=null,relatedRefusals=0;
   const diagnostic=()=>({cause:barrierCause||lastDetection,relatedRefusals,nextAction:nextAction({ready,blocked:locked(),modern:modern(),ended:lifecycle.ended,barrier:recovery.barrier(),recovery:recovery.snapshot(),admission:recovery.admission()}),admission:recovery.admission()});
-  const report=()=>({...(modern()?{schema:4,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.3',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
+  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.4',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
   function capture(rule,event,tool,agentId){
-    lastDetection=diagnosticCause(rule,lastReason,event,tool);
+    lastDetection=diagnosticCause(rule,lastReason,event,tool,lastLocation);
     if(interception&&!modern())return;
-    const record={...(modern()?{recordId:crypto.randomUUID(),reason:lastDetection.reason}:{}),at:Date.now(),ruleId:safeRule(rule),event,tool:lastDetection.tool,agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
+    const record={...(modern()?{recordId:crypto.randomUUID(),reason:lastDetection.reason,...(lastDetection.location?{location:lastDetection.location}:{})}:{}),at:Date.now(),ruleId:safeRule(rule),event,tool:lastDetection.tool,agentId:label(agentId,80),agentType:actors.get(agentId)||null,identity:{...lifecycle.identity}};
     // A rejected follow-up prompt must not relabel the original pause.
     if(!modern()||!barrierCause)interception=record;
     if(modern()&&lifecycle.events.length<32)lifecycle.events.push(record);
   }
   function pause(owner,reason,hard){const paused=recovery.pause(owner,reason,hard);if(paused)barrierCause??=lastDetection;return paused;}
   function pauseCurrent(reason,hard){recovery.pauseCurrent(reason,hard);barrierCause??=lastDetection;}
-  function inspect(value,source,tool,agentId){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastEvent=source;capture(r.rule,source,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
-  function fail(rule,event){blocked=true;lastRule=rule;lastReason=null;lastEvent=event;capture(rule,event);pauseCurrent(rule,true);notify();}
+  function inspect(value,source,tool,agentId){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastLocation=r.location||null;lastEvent=source;capture(r.rule,source,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
+  function fail(rule,event){blocked=true;lastRule=rule;lastReason=null;lastLocation=null;lastEvent=event;capture(rule,event);pauseCurrent(rule,true);notify();}
   // Existing host events supply identity; no transcript scan or title generation.
   on('classic.SessionStart',($,e,next)=>{Object.assign(lifecycle.identity,{hostSessionId:label(e.session_id,80),project:label(e.cwd,512),title:label(e.session_title),agentType:label(e.agent_type,80),model:label(e.model,80)});notify();return next(e);});
   on('classic.UserPromptSubmit',($,e,next)=>{if(e.session_title)lifecycle.identity.title=label(e.session_title);notify();return next(e);});
@@ -102,7 +102,7 @@ export function register(on){
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Fixed diagnostic vocabulary is safe to display; never expose custom IDs.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.3',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.4',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};
@@ -139,7 +139,7 @@ export function register(on){
         }
         decision.rule='network.address';decision.reason='redaction.unsupported-result';
       }
-      lastRule=decision.rule;lastReason=decision.reason||null;lastEvent='tool.result';capture(lastRule,lastEvent,e.tool,e.agentId);
+      lastRule=decision.rule;lastReason=decision.reason||null;lastLocation=decision.location||null;lastEvent='tool.result';capture(lastRule,lastEvent,e.tool,e.agentId);
       // Return the refusal before stopping future model steps; do not abort
       // this dispatch and lose the reason to the host's cancellation placeholder.
       blocked=true;pause(owner,lastReason||lastRule,lastRule==='inspection.failed');notify();return deny('result');
@@ -165,9 +165,9 @@ export function register(on){
         const health=engine.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');
         if(!health.blocked)recovery.healthRestored();
       }
-      const reason=recovery.preparePrompt(e);if(reason)return {drop:(reason==='recovery.busy'?'SAFEGUARD_WAIT':'SAFEGUARD_PAUSED')+' ['+reason+']; '+(reason==='recovery.user-required'?'Use a new safe message from the trusted user input.':reason==='recovery.wait'?'Wait for the current turn, tools and agents to end, then submit a new safe message.':actionText(diagnostic().nextAction))};
+      const reason=recovery.preparePrompt(e);if(reason)return {drop:(['recovery.busy','recovery.wait'].includes(reason)?'SAFEGUARD_WAIT':'SAFEGUARD_PAUSED')+' ['+reason+']; '+(reason==='recovery.user-required'?'Use a new safe message from the trusted user input.':reason==='recovery.wait'?'This message was not queued. Wait for the current turn, tools and agents to end, then resend a safe message.':actionText(diagnostic().nextAction))};
       admission=recovery.commitPrompt(e);if(!admission)return {drop:'SAFEGUARD_RECOVERY_WAIT'};
-      blocked=false;lastRule=null;lastReason=null;lastEvent=null;barrierCause=null;lastDetection=null;relatedRefusals=0;notify();
+      blocked=false;lastRule=null;lastReason=null;lastLocation=null;lastEvent=null;barrierCause=null;lastDetection=null;relatedRefusals=0;notify();
     }
     try{return await next(e);}
     finally{if(admission){recovery.finishPrompt(admission);notify();}}

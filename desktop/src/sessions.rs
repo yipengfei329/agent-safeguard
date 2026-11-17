@@ -75,7 +75,30 @@ fn valid_text(value: &Option<String>, max: usize) -> bool {
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Location {
+    pub text_index: u64,
+    pub line: u64,
+    pub field: String,
+}
+impl Location {
+    fn valid(&self) -> bool {
+        self.text_index > 0
+            && self.line > 0
+            && ["token", "password", "device", "hostname", "computer"]
+                .contains(&self.field.as_str())
+    }
+    fn label(&self) -> String {
+        format!(
+            " · 扫描文本 {} 的第 {} 行 · {} 字段（非源文件行号）",
+            self.text_index, self.line, self.field
+        )
+    }
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Interception {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
     #[serde(default)]
     pub record_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,6 +134,8 @@ pub struct Admission {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Cause {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<Location>,
     pub rule: Option<String>,
     pub reason: String,
     pub event: String,
@@ -171,22 +196,24 @@ impl Diagnostic {
         ]
         .contains(&self.next_action.as_str())
             && self.cause.as_ref().is_none_or(|c| {
-                c.rule.as_deref().is_none_or(|r| {
-                    [
-                        "network.address",
-                        "identity.device",
-                        "identity.environment",
-                        "security.credentials",
-                        "inspection.failed",
-                        "initialization.failed",
-                        "tool.hook.failed",
-                        "prompt.hook.failed",
-                        "context.hook.failed",
-                        "session.ended",
-                        "custom.rule",
-                    ]
-                    .contains(&r)
-                }) && valid_reason(&c.reason)
+                c.location.as_ref().is_none_or(Location::valid)
+                    && c.rule.as_deref().is_none_or(|r| {
+                        [
+                            "network.address",
+                            "identity.device",
+                            "identity.environment",
+                            "security.credentials",
+                            "inspection.failed",
+                            "initialization.failed",
+                            "tool.hook.failed",
+                            "prompt.hook.failed",
+                            "context.hook.failed",
+                            "session.ended",
+                            "custom.rule",
+                        ]
+                        .contains(&r)
+                    })
+                    && valid_reason(&c.reason)
                     && [
                         "tool.input",
                         "tool.result",
@@ -407,7 +434,14 @@ impl Session {
                     }
                     _ => "命中本地检测规则，未记录原始值",
                 };
-                format!("原因：{hint}（{r}）")
+                format!(
+                    "原因：{hint}（{r}）{}",
+                    self.interception
+                        .as_ref()
+                        .and_then(|e| e.location.as_ref())
+                        .map(Location::label)
+                        .unwrap_or_default()
+                )
             })
             .unwrap_or_default()
     }
@@ -460,12 +494,14 @@ impl Session {
             return Err("STATUS_INPUT_LIMIT");
         }
         let s: Self = serde_json::from_slice(bytes).map_err(|_| "STATUS_FORMAT_REJECTED")?;
-        if ![1, 2, 3, 4].contains(&s.schema)
-            || s.diagnostic
-                .as_ref()
-                .is_some_and(|d| s.schema != 4 || !d.valid())
+        if ![1, 2, 3, 4, 5].contains(&s.schema)
+            || s.diagnostic.as_ref().is_some_and(|d| {
+                ![4, 5].contains(&s.schema)
+                    || !d.valid()
+                    || (s.schema < 5 && d.cause.as_ref().is_some_and(|c| c.location.is_some()))
+            })
             || s.recovery.as_ref().is_some_and(|r| {
-                ![3, 4].contains(&s.schema)
+                ![3, 4, 5].contains(&s.schema)
                     || !["active", "pausing", "paused", "faulted", "ended"]
                         .contains(&r.state.as_str())
                     || r.epoch == 0
@@ -473,9 +509,12 @@ impl Session {
             || !s.identity.valid()
             || s.interception.as_ref().is_some_and(|e| {
                 !e.identity.valid()
+                    || e.location
+                        .as_ref()
+                        .is_some_and(|l| s.schema != 5 || !l.valid())
                     || e.reason
                         .as_ref()
-                        .is_some_and(|r| s.schema != 4 || !valid_reason(r))
+                        .is_some_and(|r| ![4, 5].contains(&s.schema) || !valid_reason(r))
                     || e.record_id.as_ref().is_some_and(|id| {
                         id.len() != 36 || !id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
                     })
@@ -816,11 +855,48 @@ mod tests {
         assert!(!row.recovery_advice_at(now(), true).contains("可发送"));
     }
     #[test]
+    fn schema_five_coordinates_never_accept_raw_field_names_or_values() {
+        let mut row = session();
+        row.schema = 5;
+        row.interception = Some(Interception {
+            location: Some(Location {
+                text_index: 3,
+                line: 21,
+                field: "token".into(),
+            }),
+            record_id: None,
+            reason: Some("literal-value".into()),
+            at: now(),
+            rule_id: Some("security.credentials".into()),
+            event: "tool.result".into(),
+            tool: Some("Bash".into()),
+            agent_id: None,
+            agent_type: None,
+            identity: Identity::default(),
+        });
+        assert!(Session::parse(&serde_json::to_vec(&row).unwrap()).is_ok());
+        assert!(row.reason_label().contains("第 21 行"));
+        row.schema = 4;
+        assert!(Session::parse(&serde_json::to_vec(&row).unwrap()).is_err());
+        row.schema = 5;
+        let good = serde_json::to_value(&row).unwrap();
+        for (field, value) in [
+            ("field", serde_json::json!("privateSecretName")),
+            ("line", serde_json::json!(0)),
+            ("value", serde_json::json!("SYNTHETIC_SECRET")),
+        ] {
+            let mut bad = good.clone();
+            bad["interception"]["location"][field] = value;
+            assert!(Session::parse(&serde_json::to_vec(&bad).unwrap()).is_err());
+        }
+    }
+    #[test]
     fn schema_four_diagnostics_are_bounded_and_separate_from_history() {
         let mut row = session();
         row.schema = 4;
         row.diagnostic = Some(Diagnostic {
             cause: Some(Cause {
+                location: None,
                 rule: Some("identity.device".into()),
                 reason: "literal-value".into(),
                 event: "tool.result".into(),
@@ -876,6 +952,7 @@ mod tests {
         let mut rows = Vec::new();
         for i in 1..=2 {
             row.interception = Some(Interception {
+                location: None,
                 reason: None,
                 record_id: Some(format!("00000000-0000-4000-9000-{i:012}")),
                 at: now(),
@@ -943,6 +1020,7 @@ mod tests {
             ..Default::default()
         };
         row.interception = Some(Interception {
+            location: None,
             reason: None,
             record_id: None,
             at: now(),
