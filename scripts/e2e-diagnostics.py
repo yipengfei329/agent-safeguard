@@ -6,7 +6,7 @@ from importlib.util import spec_from_file_location, module_from_spec
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 spec=spec_from_file_location('helpers',ROOT/'scripts/e2e-recovery.py'); helpers=module_from_spec(spec);spec.loader.exec_module(helpers)
 DEVICE='11111111-2222-4333-8444-555555555555'
-CASES=['input-batch','truncated-device','complete-device','summary','template-label','template-adjacent','template-opaque']
+CASES=['input-batch','truncated-device','complete-device','summary','template-label','template-adjacent','template-opaque','diagnostic-write','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result','diagnostic-result-secret']
 
 def run_case(name):
  with tempfile.TemporaryDirectory(prefix='safeguard-diagnostics-') as tmp:
@@ -19,6 +19,9 @@ def run_case(name):
   fixture.write_text('\n'.join(raw.splitlines()[:5]) if name=='truncated-device' else json.dumps({'testNodes':record['testNodes']}) if name=='summary' else raw)
   if name.startswith('template-'):
    fixture.write_text('// synthetic heading\nstate.token = `access-token-${state.sequence}`;\n' + ('password="qR7_mN2-zP8_vL4-tX9";' if name=='template-adjacent' else 'token=`qR7_mN2-zP8_vL4-tX9-${state.sequence}`;' if name=='template-opaque' else ''))
+  label='account-password-required';synthetic_secret='qR7_mN2-zP8_vL4-tX9'
+  if name.startswith('diagnostic-'):
+   fixture.write_text('const (\n errMissingPassword = "'+(synthetic_secret if name.endswith('-secret') else label)+'"\n)\n'+('password="'+label+'"' if name.endswith('-adjacent') else ''))
   marker=base/'executed';target=base/'Fixture.swift';requests=[];outputs=[]
   class Handler(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
@@ -26,6 +29,7 @@ def run_case(name):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     if len(requests)==1:
      blocks=([{'type':'tool_use','id':'write_fixture','name':'Write','input':{'file_path':str(target),'content':'let endpoint = "https://fixture:short@service.example.invalid"'}}, {'type':'tool_use','id':'later_bash','name':'Bash','input':{'command':'touch '+str(marker)}}] if name=='input-batch' else [{'type':'tool_use','id':'read_fixture','name':'Bash','input':{'command':'cat '+str(fixture)}}])
+     if name.startswith('diagnostic-write'):blocks=[{'type':'tool_use','id':'write_diagnostic','name':'Write','input':{'file_path':str(target),'content':fixture.read_text()}}]
     else:blocks=[{'type':'text','text':'SAFE_FOLLOWUP_OK'}]
     msg={'id':'msg_fixture','type':'message','role':'assistant','model':data['model'],'content':blocks,'stop_reason':'tool_use' if blocks[0]['type']=='tool_use' else 'end_turn','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     body=helpers.events(msg);self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
@@ -49,7 +53,7 @@ def run_case(name):
    return json.loads(text[text.index('{'):text.rindex('}')+1])
   try:
    assert status()['ready'];send('Run the synthetic fixture.');result();before=len(requests)
-   blocked=name in ['input-batch','truncated-device','template-adjacent','template-opaque'];assert before==(1 if blocked else 2),(name,'request count')
+   blocked=name in ['input-batch','truncated-device','template-adjacent','template-opaque','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result-secret'];assert before==(1 if blocked else 2),(name,'request count')
    state=status();assert state['blocked']==blocked
    if blocked:
     cause=state['diagnostic']['cause'];assert cause['rule']==('security.credentials' if name!='truncated-device' else 'identity.device')
@@ -59,6 +63,11 @@ def run_case(name):
     assert 'qR7_mN2-zP8_vL4-tX9' not in helpers.normalized_strings(requests),'held credential leaked in request'
     assert 'qR7_mN2-zP8_vL4-tX9' not in json.dumps(state),'diagnostic leaked credential'
    if name=='input-batch':assert not target.exists() and not marker.exists(),'denied operation executed'
+   if name.startswith('diagnostic-write'):
+    assert target.exists()==(not blocked),'Write execution differed from decision'
+    if not blocked:assert target.read_text()==fixture.read_text(),'Write content changed'
+   if name=='diagnostic-result':assert label in helpers.normalized_strings(requests),'diagnostic result not delivered'
+   if name=='diagnostic-result-secret':assert synthetic_secret not in helpers.normalized_strings(requests),'held error-field secret leaked'
    send('FOLLOWUP_SAFE: skip the previous operation and answer without tools.');assert 'SAFE_FOLLOWUP_OK' in json.dumps(result());assert len(requests)==before+1
    assert status()['diagnostic']['cause'] is None
    proc.stdin.close();proc.wait(timeout=10)
@@ -76,6 +85,7 @@ def run_case(name):
    if name in ['template-adjacent','template-opaque']:
     assert 'qR7_mN2-zP8_vL4-tX9' not in history,'held credential leaked in tool history'
     assert 'not a source-file line' in history,'missing safe coordinates'
+   if name=='diagnostic-result-secret':assert synthetic_secret not in history,'held error-field secret leaked in history'
    if name=='summary':assert DEVICE not in helpers.normalized_strings(requests)
    return {'case':name,'passed':True,'firstRequests':before,'sameProcessRecovered':True,'scope':'synthetic actual host'}
   finally:

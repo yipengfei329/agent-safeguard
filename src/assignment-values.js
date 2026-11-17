@@ -75,10 +75,12 @@ function annotationEnd(rhs, allowString=false){
 
 export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   const {field:fieldMatcher,key:keyMatcher,marker}=policy.matchers;
-  let fieldName=keyMatcher.test(key)?policy.classify(key):null,evidence='value';
-  const negativeValues=new Map(),negativeNames=new Map(),fieldKinds=new Map(),prefixContexts=new Map();
+  let fieldName=keyMatcher.test(key)?policy.classify(key):null,fieldEvidence=policy.evidence?.(key)||'value',evidence=fieldEvidence;
+  const negativeValues=new Map(),negativeNames=new Map(),negativeDiagnostics=new Map(),fieldKinds=new Map(),prefixContexts=new Map();
   const valuePresent=(value,kind=evidence)=>{
-    const caches=kind==='symbol-name'?negativeNames:negativeValues;
+    // A diagnostic label must never seed a negative cache for an ordinary
+    // password field (or vice versa). Syntax evidence is part of the key.
+    const caches=kind==='symbol-name'?negativeNames:kind==='diagnostic-label'?negativeDiagnostics:negativeValues;
     let cache=caches.get(fieldName);
     if(!cache){cache=new Set();caches.set(fieldName,cache);}
     if(value.length<=256&&cache.has(value))return false;
@@ -109,7 +111,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   function candidateReason(m,start,before,rawRHS) {
     // Bound context work even for minified/generated code on one long line.
     const prefix=before.slice(before.lastIndexOf('\n')+1);
-    evidence=m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix)?'symbol-name':'value';
+    evidence=m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix)?'symbol-name':fieldEvidence;
     // A quoted switch label is not a field. Exact boundaries already exclude ask-secret.
     if (/\bcase[ \t]+$/.test(prefix)) return null;
     let rhs=rawRHS.replace(/^[ \t]+/,'');
@@ -224,14 +226,16 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   for (const m of input.matchAll(fieldMatcher)) {
     budget();
     if(m[2]===':'&&typeFields.has(m.index))continue;
-    let kind=null;
-    if(fieldKinds.has(m[0]))kind=fieldKinds.get(m[0]);
+    let field=null;
+    if(fieldKinds.has(m[0]))field=fieldKinds.get(m[0]);
     else{
-      kind=policy.classify(m[0].slice(0,m[0].lastIndexOf(m[2])).trim());
-      if(m[0].length<=256&&fieldKinds.size<128)fieldKinds.set(m[0],kind);
+      const name=m[0].slice(0,m[0].lastIndexOf(m[2])).trim();
+      const kind=policy.classify(name);
+      field=kind?{kind,evidence:policy.evidence?.(name)||'value'}:null;
+      if(m[0].length<=256&&fieldKinds.size<128)fieldKinds.set(m[0],field);
     }
-    if(!kind)continue;
-    fieldName=kind;
+    if(!field)continue;
+    fieldName=field.kind;fieldEvidence=field.evidence;
     const start=m.index+m[0].length;
     const before=input.slice(Math.max(0,m.index-256),m.index),rawRHS=input.slice(start,start+1024);
     // Memoize only an identical candidate and every byte of context the parser

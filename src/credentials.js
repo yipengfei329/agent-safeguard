@@ -1,7 +1,7 @@
 import {placeholder,secretValue} from './credential-values.js';
-import {credentialFieldKind} from './credential-fields.js';
+import {credentialFieldKind,credentialFieldEvidence} from './credential-fields.js';
 import {assignmentMatchers,assignmentReason} from './assignment-values.js';
-const policy={matchers:assignmentMatchers(undefined,/password|passwd|token|secret|authorization|key/i),classify:credentialFieldKind,accept:secretValue};
+const policy={matchers:assignmentMatchers(undefined,/password|passwd|token|secret|authorization|key/i),classify:credentialFieldKind,evidence:credentialFieldEvidence,accept:secretValue};
 const privateKey = /-----BEGIN (?:(?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----/;
 const credentialURL = /\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@?#"'<>]*:([^\s/@?#"'<>]+)@/gi;
 // Deliberately specific formats, not generic entropy or every "sk-" identifier.
