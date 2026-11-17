@@ -10,7 +10,7 @@ use std::{
 };
 
 pub const PLUGIN_ID: &str = "agent-safeguard@agent-safeguard-local";
-pub const BUNDLED_VERSION: &str = "0.2.3";
+pub const BUNDLED_VERSION: &str = "0.2.4";
 pub const DEFAULT_RULES: &str = include_str!("../../config/tool-results.json");
 const MAX_BYTES: usize = 1_048_576;
 pub type Result<T> = std::result::Result<T, &'static str>;

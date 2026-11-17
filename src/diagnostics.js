@@ -5,7 +5,8 @@ const reasons=new Set(['inspection.failed','initialization.failed','tool.hook.fa
 const events=new Set(['tool.input','tool.result','tool.call','user.prompt','session.start','prompt.submit','prompt.section','prompt.context','prompt.attachment','agent.spawn','session.compact']);
 export const safeRule=value=>value==null?null:rules.has(value)?value:'custom.rule';
 export const safeReason=value=>reasons.has(value)?value:'rule.match';
-export function diagnosticCause(rule,reason,event,tool){return {rule:safeRule(rule),reason:safeReason(reason||(rules.has(rule)&&rule.endsWith('.failed')?rule:null)),event:events.has(event)?event:'tool.call',tool:['Bash','Write','Edit','Read','Grep','Glob'].includes(tool)?tool:null};}
+export function safeLocation(value){return value&&Number.isSafeInteger(value.textIndex)&&value.textIndex>0&&Number.isSafeInteger(value.line)&&value.line>0&&['token','password','device','hostname','computer'].includes(value.field)?{textIndex:value.textIndex,line:value.line,field:value.field}:null;}
+export function diagnosticCause(rule,reason,event,tool,location){return {...(safeLocation(location)?{location:safeLocation(location)}:{}),rule:safeRule(rule),reason:safeReason(reason||(rules.has(rule)&&rule.endsWith('.failed')?rule:null)),event:events.has(event)?event:'tool.call',tool:['Bash','Write','Edit','Read','Grep','Glob'].includes(tool)?tool:null};}
 export function nextAction({ready,blocked,modern,ended,barrier={},recovery={},admission={}}){
  if(ended)return 'restart';
  if(!ready)return blocked?'health-check':'initializing';
@@ -35,5 +36,5 @@ export function refusal({effect,cause,action,related=false,stale=false,afterActi
  const code=stale?'recovery.stale-owner':related?'session.paused':cause?.reason||'session.unavailable';
  const origin=cause?`${related?' Earlier pause:':' Cause:'} ${cause.rule} / ${cause.reason} at ${cause.event}${cause.tool?' ('+cause.tool+')':''}.`:'';
  const hint=cause?.rule==='identity.device'?' Device identifier detected without an applicable exemption; truncated records cannot establish simulator platform.':cause?.reason==='url-password'?' URL password detected; example domains do not exempt credentials.':'';
- return `SAFEGUARD_BLOCKED [${code}]: ${outcome}${origin}${hint} ${actionText(action)}${afterAction&&afterAction!==action?' Then: '+actionText(afterAction):''} Held operations and results are not replayed.`;
+ return `SAFEGUARD_BLOCKED [${code}]: ${outcome}${origin}${hint}${cause?.location?' Location: scanned text '+cause.location.textIndex+', line '+cause.location.line+', '+cause.location.field+' field (not a source-file line).':''} ${actionText(action)}${afterAction&&afterAction!==action?' Then: '+actionText(afterAction):''} Held operations and results are not replayed.`;
 }

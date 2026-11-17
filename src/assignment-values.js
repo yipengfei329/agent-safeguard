@@ -211,7 +211,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     return null;
   }
   // Structured strings are actual data. Do not reinterpret them as source code.
-  if(fieldName&&valuePresent(text))return 'structured-value';
+  if(fieldName&&valuePresent(text)){if(syntax?.recordLocation)syntax.match={offset:0,field:fieldName};return 'structured-value';}
   if(marker&&!marker.test(text))return null;
   // Interpret annotations at the field itself. Rewriting every declaration
   // first duplicated a full scan and changed offsets in large source output.
@@ -240,7 +240,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     const cacheKey=cacheEnabled&&m[0].length<=256?m[0].length+':'+m[0]+before.length+':'+before+rawRHS:null;
     if(cacheKey!==null&&negativeCandidates.has(cacheKey))continue;
     const result=candidateReason(m,start,before,rawRHS);
-    if(result)return result;
+    if(result){if(syntax?.recordLocation)syntax.match={offset:m.index,field:fieldName};return result;}
     if(cacheKey!==null){
       if(negativeCandidates.size<128)negativeCandidates.add(cacheKey);
       // Non-repeating source should not pay per-candidate cache-key costs.

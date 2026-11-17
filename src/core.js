@@ -2,7 +2,7 @@ import ipaddr from 'ipaddr.js';
 import {ipMatches} from './ip-matches.js';
 import {createIPLabels,transformIPs,REDACTION_NOTICE} from './redaction.js';
 export {createSessionState} from './session-state.js';
-export {safeRule,safeReason,diagnosticCause,nextAction,actionText,refusal} from './diagnostics.js';
+export {safeRule,safeReason,safeLocation,diagnosticCause,nextAction,actionText,refusal} from './diagnostics.js';
 export {migrateRules} from './migration.js';
 import {bundledGeoIP} from './geoip.js';
 import {credentialReason} from './credentials.js';
@@ -56,17 +56,18 @@ export function compile(config=defaults,options={}){
   function scan(value,source='tool.result',tool='',deadline=Date.now()+100,skipRedact=false){
     try {
       const observed=new Set();let operations=0;const budget=()=>{if((++operations&31)===0&&Date.now()>deadline)throw Error('inspection.timeout');};
-      let bytes=0,nodes=0;const seen=new Set();const active=rules.filter(r=>selected(r,source,tool)&&(!skipRedact||r.action!=='redact'));
+      let bytes=0,nodes=0,textCount=0;const seen=new Set();const active=rules.filter(r=>selected(r,source,tool)&&(!skipRedact||r.action!=='redact'));
       function text(s,decode=0,key="",simulator=false){
+        const textIndex=++textCount;
         bytes+=encoder.encode(s).length;if(bytes>limits.maxTextBytes)throw Error('inspection.text-limit');
         // Credential evidence and device scope come from decoded JSON values.
         // Other rule kinds retain their existing raw-text semantics.
         let decoded,hasDecoded=false;
         if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {try{decoded=JSON.parse(s);hasDecoded=true;}catch{}}
         const normalized=s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
-        let ips,deviceText;const syntax={};
+        let ips,deviceText;const syntax={recordLocation:options.diagnostics===true};
         for(const r of active){
-          budget();const d=r.detector;let hit=false,reason=null;
+          budget();syntax.match=null;const d=r.detector;let hit=false,reason=null;
           if(d.kind==='ip') {ips??=addresses(normalized);hit=ips.some(ip=>!matchesRanges(ip,r.exclusions,budget)&&(d.mode==='any'||(d.mode==='country'?geo.lookup(ip)===1:matchesRanges(ip,r.ranges,budget))));}
           if(d.kind==='exact')hit=d.values.some(v=>{budget();return d.caseSensitive?normalized.includes(v):normalized.toLowerCase().includes(v.toLowerCase());});
           if(d.kind==='domain'){const lower=normalized.toLowerCase();hit=d.suffixes.some(v=>{v=v.toLowerCase();let at=-1;while((at=lower.indexOf(v,at+1))!==-1){const before=lower[at-1]||'',after=lower[at+v.length]||'';if(!/[a-z0-9_-]/.test(before)&&(!/[a-z0-9_.-]/.test(after)||(after==='.'&&!/[a-z0-9_.-]/.test(lower[at+v.length+1]||''))))return true;}return false;});}
@@ -76,7 +77,11 @@ export function compile(config=defaults,options={}){
               if(!hasDecoded&&!simulator){deviceText??=maskSimulatorIdentifiers(normalized,budget);reason=identity(deviceText,key,d.name,budget,syntax);hit=reason!==null;}
             }else{reason=identity(normalized,key,d.name,budget,syntax);hit=reason!==null;}
           }
-          if(hit&&r.action!=='observe')return {blocked:true,rule:r.id,...(reason?{reason}:{})};if(hit)observed.add(r.id);
+          if(hit&&r.action!=='observe'){
+            let location;
+            if(syntax.match){let line=1,at=-1;while((at=normalized.indexOf('\n',at+1))>=0&&at<syntax.match.offset){budget();line++;}location={textIndex,line,field:syntax.match.field};}
+            return {blocked:true,rule:r.id,...(reason?{reason}:{}),...(location?{location}:{})};
+          }if(hit)observed.add(r.id);
         }
         if(hasDecoded)return visit(decoded,1,decode+1,key);
         return null;

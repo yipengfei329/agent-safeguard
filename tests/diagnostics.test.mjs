@@ -21,3 +21,10 @@ for(const effect of ['input','result','unknown','spawn','spawn-result'])test('fo
  if(effect==='unknown')assert(!r.includes('Tool not executed.'));
 });
 for(const rule of ['inspection.failed','initialization.failed','tool.hook.failed','prompt.hook.failed','context.hook.failed'])test('fault is not described as a rule match: '+rule,()=>assert.equal(diagnosticCause(rule,null,'tool.call').reason,rule));
+test('diagnostic location admits only numeric coordinates and fixed field roles',()=>{
+ const bad={textIndex:1,line:2,field:'SYNTHETIC_PRIVATE_FIELD',value:'SYNTHETIC_PRIVATE_VALUE'};
+ assert.equal(diagnosticCause('security.credentials','literal-value','tool.result','Bash',bad).location,undefined);
+ const cause=diagnosticCause('security.credentials','literal-value','tool.result','Bash',{...bad,field:'token'});
+ assert.deepEqual(cause.location,{textIndex:1,line:2,field:'token'});assert(!JSON.stringify(cause).includes('SYNTHETIC_PRIVATE'));
+ assert(refusal({effect:'result',cause,action:'safe-message'}).includes('not a source-file line'));
+});
