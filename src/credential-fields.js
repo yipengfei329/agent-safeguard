@@ -6,9 +6,23 @@ function fieldWords(name) {
   const leaf=name.split('.').at(-1).replace(/^--/,'').replace(/\?$/,'').replace(/^["']|["']$/g,'');
   return leaf.replace(/([A-Z]+)([A-Z][a-z])/g,'$1_$2').replace(/([a-z0-9])([A-Z])/g,'$1_$2').toLowerCase().split(/[_-]+/).filter(Boolean);
 }
+
+// The Windows manifest attribute identifies a signing key, not a credential.
+// Require a complete start tag with ordinary XML attributes on both sides.
+const xmlAttribute = String.raw`[ \t\r\n]+[A-Za-z_][\w.:-]*[ \t\r\n]*=[ \t\r\n]*(?:"[^"<]*"|'[^'<]*')`;
+const assemblyPrefix = new RegExp(String.raw`^<assemblyIdentity(?:${xmlAttribute})*[ \t\r\n]+$`);
+const assemblySuffix = new RegExp(String.raw`^(?:"[^"<\\]*"|'[^'<\\]*')(?:${xmlAttribute})*[ \t\r\n]*/?>`);
+function assemblyTokenEvidence(before, rhs) {
+  const start = before.lastIndexOf('<');
+  return start !== -1 && assemblyPrefix.test(before.slice(start)) && assemblySuffix.test(rhs)
+    ? 'assembly-identity'
+    : 'value';
+}
+
 // This is evidence about one field, never an exemption for its value. The
 // value policy must independently recognize a complete diagnostic label.
 export function credentialFieldEvidence(name) {
+  if (name === 'publicKeyToken') return assemblyTokenEvidence;
   return /err/i.test(name)&&['err','error'].includes(fieldWords(name)[0])?'diagnostic-label':'value';
 }
 export function credentialFieldKind(name) {
