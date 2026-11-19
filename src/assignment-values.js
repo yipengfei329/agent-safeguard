@@ -75,12 +75,22 @@ function annotationEnd(rhs, allowString=false){
 
 export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   const {field:fieldMatcher,key:keyMatcher,marker}=policy.matchers;
-  let fieldName=keyMatcher.test(key)?policy.classify(key):null,fieldEvidence=policy.evidence?.(key)||'value',evidence=fieldEvidence;
-  const negativeValues=new Map(),negativeNames=new Map(),negativeDiagnostics=new Map(),fieldKinds=new Map(),prefixContexts=new Map();
+  let fieldName=keyMatcher.test(key)?policy.classify(key):null;
+  let fieldEvidence=fieldName?policy.evidence?.(key)||'value':'value';
+  let evidence=typeof fieldEvidence==='function'?'value':fieldEvidence;
+  const negativeValues=new Map(),negativeNames=new Map(),negativeDiagnostics=new Map();
+  let negativeContextual;
+  const fieldKinds=new Map(),prefixContexts=new Map();
   const valuePresent=(value,kind=evidence)=>{
-    // A diagnostic label must never seed a negative cache for an ordinary
-    // password field (or vice versa). Syntax evidence is part of the key.
-    const caches=kind==='symbol-name'?negativeNames:kind==='diagnostic-label'?negativeDiagnostics:negativeValues;
+    // Keep ordinary fields separate from syntax-dependent classifications.
+    let caches=negativeValues;
+    if(kind==='symbol-name')caches=negativeNames;
+    else if(kind==='diagnostic-label')caches=negativeDiagnostics;
+    else if(kind!=='value'){
+      negativeContextual??=new Map();
+      if(!negativeContextual.has(kind))negativeContextual.set(kind,new Map());
+      caches=negativeContextual.get(kind);
+    }
     let cache=caches.get(fieldName);
     if(!cache){cache=new Set();caches.set(fieldName,cache);}
     if(value.length<=256&&cache.has(value))return false;
@@ -111,7 +121,8 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   function candidateReason(m,start,before,rawRHS) {
     // Bound context work even for minified/generated code on one long line.
     const prefix=before.slice(before.lastIndexOf('\n')+1);
-    evidence=m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix)?'symbol-name':fieldEvidence;
+    evidence=typeof fieldEvidence==='function'?'value':fieldEvidence;
+    if(m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix))evidence='symbol-name';
     // A quoted switch label is not a field. Exact boundaries already exclude ask-secret.
     if (/\bcase[ \t]+$/.test(prefix)) return null;
     let rhs=rawRHS.replace(/^[ \t]+/,'');
@@ -137,6 +148,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     // its complete value/concatenation before constructing code-prefix context.
     // The same parser handles the slower annotated/colon path below.
     if(m[2]==='='&&/^["'`rRuUbB]/.test(rhs)){
+      if(!m[1]&&typeof fieldEvidence==='function')evidence=fieldEvidence(before,rhs);
       const result=quotedReason(rhs);
       if(result!==undefined){if(result)return result;return null;}
     }

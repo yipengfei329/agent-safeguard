@@ -72,6 +72,7 @@ function diagnosticLabel(value,name) {
 }
 
 export function secretValue(value, name='', budget=()=>{}, evidence='value') {
+  if (evidence === 'assembly-identity' && /^[0-9a-f]{16}$/i.test(value)) return false;
   value=value.trim();
   if(evidence==='diagnostic-label'&&diagnosticLabel(value,name))return false;
   // Only an explicit name slot can reinterpret an uppercase identifier. Plain
