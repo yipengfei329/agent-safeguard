@@ -1,10 +1,18 @@
 """Synthetic real-host multi-turn recorder. All values originate in local fixtures,
 not the model's tool arguments. No real credentials or user configuration.
 """
-import http.server,json,os,pathlib,queue,re,shutil,subprocess,tempfile,threading,time
+import http.server,json,os,pathlib,queue,re,shlex,shutil,subprocess,tempfile,threading,time
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 CLAUDE=os.environ.get('SAFEGUARD_CLAUDE_BIN') or shutil.which('claude')
 IP='203.0.113.17'; SECRET='SYNTHETIC_RECOVERY_SECRET'
+TEST_ADDRESS_LINE='    time=2026-01-15T12:00:00.123Z level=INFO msg="IPv6 endpoint listening" addr=[2001:db8::7]:8080\n'
+TEST_LOG=TEST_ADDRESS_LINE+(
+ '--- FAIL: TestSynthetic (0.10s)\n'
+ '    fixture_test.go:12: failed {detail:\n'
+ '    end}\n'
+ '    testing.tRunner(0x1, {0x2})\n'
+)
+TEST_TAIL=TEST_ADDRESS_LINE+'FAIL\texample.invalid/test/e2e\t0.118s\nFAIL\n'
 CASES=[
  ('clean','BUILD_OK',False,'pass'),
  ('ip','peer='+IP,False,'redact'),
@@ -15,6 +23,12 @@ CASES=[
  ('ansi','peer=203.0.\x1b[31m113.17',False,'redact'),
  ('json',json.dumps({'peer':IP,'status':'ok'}),False,'redact'),
  ('stderr','connection failed peer='+IP,True,'redact'),
+ ('numbered-test-log',TEST_LOG,False,'redact'),
+ ('numbered-test-stderr',TEST_LOG,True,'redact'),
+ ('numbered-test-credential',TEST_LOG+'    password='+SECRET+'\n',False,'block'),
+ ('numbered-test-source',TEST_LOG+'    func synthetic() {\n',False,'block'),
+ ('mixed-test-log',TEST_TAIL,False,'redact'),
+ ('mixed-test-source-ip',TEST_TAIL,False,'block'),
  ('credential','password='+SECRET,False,'block'),
  ('stderr-credential','password='+SECRET,True,'block'),
  ('stderr-code','const peer="'+IP+'";',True,'block'),
@@ -62,6 +76,16 @@ def run_case(case):
    network['sources'].append('tool.result')
    if action=='legacy':cfg['schemaVersion']=1;cfg['policy'].pop('recovery')
   (plugin/'local/rules.json').write_text(json.dumps(cfg));fixture=b/'fixture.txt';fixture.write_text(value)
+  quoted_fixture=shlex.quote(str(fixture))
+  command=(f"grep -n -B1 -A4 -- '^--- FAIL:' {quoted_fixture} | cut -c1-260"
+           if name.startswith('numbered-test-') else 'cat '+quoted_fixture)
+  if name.startswith('mixed-test-'):
+   source=(f'var field, action, peer = "message", "send", "{IP}"' if name=='mixed-test-source-ip'
+           else 'var fields = []string{"message", "send"}')
+   (b/'fixture.go').write_text('package fixture\n\n'+source+'\n')
+   source_pattern=shlex.quote('"message", "send"')
+   command=f'git grep -n --no-index -- {source_pattern} fixture.go | head -3; tail -30 {quoted_fixture}'
+  if error:command='{ '+command+'; } >&2; exit 7'
   requests=[]
   class H(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
@@ -71,7 +95,7 @@ def run_case(case):
     has_result=any(isinstance(m.get('content'),list) and any(c.get('type')=='tool_result' for c in m['content'] if isinstance(c,dict)) for m in d.get('messages',[]))
     if follow or has_result:blocks=[{'type':'text','text':'SAFE_FOLLOWUP_OK' if follow else 'RESULT_OK'}]
     elif action=='read':blocks=[{'type':'tool_use','id':'fixture_call','name':'Read','input':{'file_path':str(fixture)}}]
-    else:blocks=[{'type':'tool_use','id':'fixture_call','name':'Bash','input':{'command':'cat '+str(fixture)+(' >&2; exit 7' if error else '')}}]
+    else:blocks=[{'type':'tool_use','id':'fixture_call','name':'Bash','input':{'command':command}}]
     msg={'id':'msg_fixture','type':'message','role':'assistant','model':d['model'],'content':blocks,'stop_reason':'end_turn' if blocks[0]['type']=='text' else 'tool_use','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
     body=events(msg);self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
   server=http.server.ThreadingHTTPServer(('127.0.0.1',0),H);threading.Thread(target=server.serve_forever,daemon=True).start()
@@ -112,6 +136,11 @@ def run_case(case):
    if action!='input':
     for token in [IP,'2001:db8::7',SECRET]:assert token not in history,(name,'raw in history')
    if action=='redact':assert '[IP_' in raw,(name,'missing label', [c for d in requests for m in d.get('messages',[]) if isinstance(m.get('content'),list) for c in m['content'] if c.get('type')=='tool_result'])
+   if name.startswith('numbered-test-') and action=='redact':
+    assert 'addr=[[IP_1]]:8080' in raw and 'testing.tRunner(0x1, {0x2})' in raw,(name,'diagnostic content lost')
+   if name=='mixed-test-log':
+    assert 'fixture.go:3:var fields = []string{"message", "send"}' in raw,(name,'source content changed')
+    assert 'addr=[[IP_1]]:8080' in raw and 'example.invalid/test/e2e' in raw,(name,'test output changed')
    if error and action=='redact':
     results=[c for d in requests for m in d.get('messages',[]) if isinstance(m.get('content'),list) for c in m['content'] if c.get('type')=='tool_result']
     assert any(c.get('is_error') for c in results),(name,'error status lost')

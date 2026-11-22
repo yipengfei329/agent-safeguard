@@ -68,7 +68,7 @@ export function register(on){
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
   let barrierCause=null,lastDetection=null,relatedRefusals=0;
   const diagnostic=()=>({cause:barrierCause||lastDetection,relatedRefusals,nextAction:nextAction({ready,blocked:locked(),modern:modern(),ended:lifecycle.ended,barrier:recovery.barrier(),recovery:recovery.snapshot(),admission:recovery.admission()}),admission:recovery.admission()});
-  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.7',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
+  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.8',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
   function capture(rule,event,tool,agentId){
     lastDetection=diagnosticCause(rule,lastReason,event,tool,lastLocation);
     if(interception&&!modern())return;
@@ -102,7 +102,7 @@ export function register(on){
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Fixed diagnostic vocabulary is safe to display; never expose custom IDs.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.7',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.8',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};

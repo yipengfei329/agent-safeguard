@@ -9,6 +9,60 @@ for(const ip of ips)for(const format of [x=>`peer=${x}`,x=>`连接成功 remote=
 for(const shape of [s=>wrap(s),s=>({result:{stdout:'clean',stderr:s,interrupted:false},isError:true}),s=>JSON.stringify({peer:s}),s=>({peers:[s,s]})])test('repeat references replaced completely in structured data',()=>{const d=compile(config()).inspectAndTransform(shape('peer=203.0.113.17 remote=203.0.113.17'));assert.equal(d.kind,'redacted');assert(!JSON.stringify(d.value).includes('203.0.113.17'));});
 for(const text of ['😀 peer=203.0.\\u0031\\u00313.17','peer=203.0.\x1b[31m113.17','peer=203.0.113.17 remote=198.51.100.9','{"peer":"203.0.113.17","nested":"{\\"peer\\":\\"203.0.113.17\\"}"}'])test('normalization and multiple locations '+JSON.stringify(text),()=>{const d=compile(config()).inspectAndTransform(wrap(text));assert.equal(d.kind,'redacted');assert(!JSON.stringify(d.value).includes('203.0.113.17'));assert(!compile(config()).scan(d.value).blocked);});
 for(const text of ['const peer="203.0.113.17";','curl http://203.0.113.17','203.0.113.17','{"peer":"203.0.113.17","peer":"clean"}','{"203.0.113.17":"value"}','{"peer":"203.0.113.17"'])test('ambiguous/code/key outputs withheld '+text,()=>{assert.equal(compile(config()).inspectAndTransform(wrap(text)).kind,'withhold');});
+
+const testAddressLog = '    time=2026-01-15T12:00:00.123+00:00 level=INFO msg="IPv6 endpoint listening" addr=[2001:db8::7]:8080';
+const testNetworkLine = `20-${testAddressLog}`;
+const testFailure = '21:--- FAIL: TestSynthetic (0.10s)\n22-    fixture_test.go:12: failed {detail:\n23-    end}\n24-    testing.tRunner(0x1, {0x2})';
+const mixedTestLog = `=== TestSynthetic\n${testNetworkLine}\n${testFailure}\n--\n${testNetworkLine}`;
+
+test('redact complete network records in numbered test failures with stack frames', () => {
+ const decision = compile(config()).inspectAndTransform(wrap(mixedTestLog), 'tool.result', 'Bash');
+ assert.equal(decision.kind, 'redacted');
+ assert.equal(decision.value.result.stdout, mixedTestLog.replaceAll('2001:db8::7', '[IP_1]'));
+ const error = {isError:true, result:`Error: Exit code 7\n${mixedTestLog}`, text:`Exit code 7\n${mixedTestLog}`};
+ const errorDecision = compile(config()).inspectAndTransform(error, 'tool.result', 'Bash');
+ assert.equal(errorDecision.kind, 'redacted');
+ assert.equal(errorDecision.value.result, error.result.replaceAll('2001:db8::7', '[IP_1]'));
+ assert.equal(errorDecision.value.text, error.text.replaceAll('2001:db8::7', '[IP_1]'));
+});
+
+test('numbered test failures still require every hit to be in an eligible record', () => {
+ const engine = compile(config());
+ for (const text of [
+  `${testNetworkLine}\n22-    testing.tRunner(0x1, {0x2})`,
+  `${testNetworkLine.replace(']:8080', ':8080')}\n${testFailure}`,
+  `${testNetworkLine.replace('    time=', '    var time=')}\n${testFailure}`,
+  `${mixedTestLog}\nunrecognized mixed output`,
+  `${mixedTestLog}\n25-    func synthetic() {`,
+  `${mixedTestLog}\n25-    printf 'source';`,
+  `${mixedTestLog}\n25-    peer=203.0.113.17`,
+  `${mixedTestLog}\n25-    curl http://198.51.100.9`,
+ ]) assert.equal(engine.inspectAndTransform(wrap(text), 'tool.result', 'Bash').kind, 'withhold', text);
+ assert.equal(engine.inspectAndTransform(wrap(`${mixedTestLog}\n25-    password=SYNTHETIC_SECRET`)).rule, 'security.credentials');
+});
+
+const grepSource = 'e2e/fixture.go:18:    fields := []string{"message", "send"}';
+const testTail = `${testAddressLog}\nFAIL\texample.invalid/test/e2e\t0.118s\nFAIL\n`;
+
+test('preserve grep source and redact only complete network records in the test tail', () => {
+ const engine = compile(config());
+ const decision = engine.inspectAndTransform(wrap(`${grepSource}\n${testTail}`), 'tool.result', 'Bash');
+ assert.equal(decision.kind, 'redacted');
+ assert.equal(decision.value.result.stdout, `${grepSource}\n${testTail.replace('2001:db8::7', '[IP_1]')}`);
+});
+
+test('mixed grep and test output still withholds source addresses and ambiguous output', () => {
+ const engine = compile(config());
+ for (const text of [
+  `${grepSource} + "203.0.113.17"\n${testTail}`,
+  `e2e/fixture.go:21:var peer = "203.0.113.17"\n${testTail}`,
+  `${grepSource}\n${testAddressLog}\n`,
+  `${grepSource}\nfunc synthetic() {\n${testTail}`,
+  `${grepSource}\npeer=203.0.113.17\n${testTail}`,
+ ]) assert.equal(engine.inspectAndTransform(wrap(text), 'tool.result', 'Bash').kind, 'withhold', text);
+ assert.equal(engine.inspectAndTransform(wrap(`${grepSource}\npassword=SYNTHETIC_SECRET\n${testTail}`)).rule, 'security.credentials');
+});
+
 test('block rule wins even if redact rule came first',()=>{const c=config();c.rules.push({id:'custom.overlap',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['203.0.113.17'],caseSensitive:true}});for(const rules of [c.rules,[...c.rules].reverse()]){const d=compile({...c,rules}).inspectAndTransform(wrap('peer=203.0.113.17'));assert.equal(d.kind,'withhold');assert.equal(d.rule,'custom.overlap');}});
 for(const adjacent of ['password=SYNTHETIC_SECRET','hostname: SyntheticHost','device_id=SYNTHETIC123456'])test('other sensitive rule cannot be hidden '+adjacent,()=>{assert.equal(compile(config()).inspectAndTransform(wrap('peer=203.0.113.17\n'+adjacent)).kind,'withhold');});
 test('no mutation, stable labels, mapped IP shares label',()=>{const e=compile(config()),value=wrap('peer=203.0.113.17 remote=::ffff:203.0.113.17'),before=structuredClone(value);const a=e.inspectAndTransform(value),b=e.inspectAndTransform(wrap('peer=203.0.113.17'));assert.deepEqual(value,before);assert.equal(a.value.result.stdout,'peer=[IP_1] remote=[IP_1]');assert.equal(b.value.result.stdout,'peer=[IP_1]');});

@@ -20,12 +20,46 @@ function normalized(text){
  for(let i=at;i<text.length;i++){chars.push(text[i]);starts.push(i);ends.push(i+1);}
  return {text:chars.join(''),starts,ends};
 }
-function sourceLike(s){return /(^|\n)\s*(?:const|let|var|function|class|import|export|return|def|pub|fn|SELECT|INSERT|UPDATE|diff|@@|[+-]{3})\b|=>|\b(?:curl|wget|ssh)\s|\$\(|`|[;{}]/m.test(s);}
-function diagnostic(s){
- // Positive diagnostic evidence, plus conservative executable/source exclusions.
- // A tool name or filename never grants eligibility.
- if(sourceLike(s))return false;
- return /\b(?:peer|local|remote|address|addr|endpoint|connect(?:ed|ion)?|listen(?:ing)?|dial|network|src|dst|server|client|from|to)\b/i.test(s);
+const sourceLine=/(?:const|let|var|function|class|import|export|return|def|pub|fn|SELECT|INSERT|UPDATE|diff|@@|[+-]{3})\b/;
+const sourceExpression=/=>|\b(?:curl|wget|ssh)\s|\$\(|[`;]/;
+const sourceLike=new RegExp('^\\s*'+sourceLine.source+'|'+sourceExpression.source+'|[{}]','m');
+const diagnosticWords=/\b(?:peer|local|remote|address|addr|endpoint|connect(?:ed|ion)?|listen(?:ing)?|dial|network|src|dst|server|client|from|to)\b/i;
+const numberedFailure=/^\d{1,10}[:-][ \t]*--- FAIL: [^\s()]+ \(\d+(?:\.\d+)?s\)\r?$/m;
+const bashExitCode=/^(?:Error: )?Exit code \d{1,3}\r?\n/;
+const outsideTestExcerpt=/^(?!\d{1,10}[:-]|(?:--|===[ \t]+[\w./-]+)[ \t]*\r?$|[ \t]*\r?$)/m;
+const testLogSource=new RegExp('^(?:\\d{1,10}[:-])?[ \\t]*(?:'+sourceLine.source+'|(?:func|package|type|struct)\\b|[+-]{3}[ \\t]+[ab]/)|'+sourceExpression.source,'m');
+const grepSourcePrefix=/^(?:[^\s:=][^:=\r\n]*:\d{1,10}:[^\r\n]*\r?\n)+/;
+const goPackageFailure=/(?:^|\n)FAIL[ \t]+[^\s:]+[ \t]+\d+(?:\.\d+)?s[ \t]*(?:\r?\nFAIL[ \t]*)?(?:\r?\n)?$/;
+const testAddressPrefix=/^(\d{1,10}[:-])?[ \t]*time=\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?(?:Z|[+-]\d\d:\d\d)[ \t]+level=(?:DEBUG|INFO|WARN|ERROR)[ \t]+msg=(?:"(?:[^"\\;{}\r\n]|\\[^;{}\r\n])*"|[^\s"'=;{}]+)[ \t]+(?:addr|address|local|remote|peer|endpoint)=(\[?)$/;
+
+// Braces can come from failure details or grep source printed before a Go
+// test tail. Every protected address must still be in a complete log record.
+function testLogAddresses(text,spans,logStart,numbered,budget){
+ if(testLogSource.test(text.slice(logStart)))return false;
+ for(const {start,end} of spans){
+  budget();
+  if(start<logStart)return false;
+  const lineStart=text.lastIndexOf('\n',start-1)+1;
+  const nextLine=text.indexOf('\n',end);
+  const lineEnd=nextLine===-1?text.length:nextLine;
+  if(lineEnd-lineStart>512)return false;
+  const prefix=testAddressPrefix.exec(text.slice(lineStart,start));
+  if(!prefix||Boolean(prefix[1])!==numbered)return false;
+  const suffix=text.slice(end,lineEnd);
+  const addressEnd=prefix[2]?/^\](?::\d{1,5})?[ \t]*\r?$/:/^(?::\d{1,5})?[ \t]*\r?$/;
+  if(!addressEnd.test(suffix))return false;
+ }
+ return true;
+}
+function redactableText(text,spans,structured,budget){
+ const code=sourceLike.test(text);
+ if(structured)return !code;
+ const bannerLength=bashExitCode.exec(text)?.[0].length??0;
+ const output=text.slice(bannerLength);
+ const sourceLength=goPackageFailure.test(output)?(grepSourcePrefix.exec(output)?.[0].length??0):0;
+ if(!code&&!sourceLength)return diagnosticWords.test(text);
+ const numbered=!sourceLength&&numberedFailure.test(output)&&!outsideTestExcerpt.test(output);
+ return (numbered||sourceLength>0)&&testLogAddresses(text,spans,bannerLength+sourceLength,numbered,budget);
 }
 // JSON.parse alone silently discards duplicate keys. Refuse these before parse.
 function duplicateKeys(s){
@@ -52,7 +86,7 @@ export function transformIPs(value,{matches,limits,deadline,labels}){
   const n=/\\u[0-9a-f]{4}|\x1b\[/i.test(s)?normalized(s):null,t=n?.text??s;const spans=[];
   for(const m of ipMatches(t)){budget();if(matches(m.ip)){if(key)throw Error('redaction.sensitive-key');spans.push({start:n?n.starts[m.start]:m.start,end:n?n.ends[m.end-1]:m.end,value:labels.get(m.ip)});if(spans.length>10000)throw Error('redaction.match-limit');}}
   if(!spans.length)return s;
-  if(sourceLike(s)||!structured&&!diagnostic(s))throw Error('redaction.unsupported');
+  if(!redactableText(s,spans,structured,budget))throw Error('redaction.unsupported');
   count+=spans.length;let out='',at=0;for(const m of spans){out+=s.slice(at,m.start)+m.value;at=m.end;}return out+s.slice(at);
  }
  function visit(v,depth=0,decode=0,key=false,structured=false){
