@@ -4,11 +4,15 @@ Local sensitive information protection for coding agents. Currently supports Cla
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.6，已在本机 Claude Code 2.1.312 和桌面端引擎 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理；检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.7，已在本机 Claude Code 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理，检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
+
+## 测试 Token 占位值误报（0.2.7）
+
+通用 Token 检测识别 `sk-dummy-secret-value` 一类完整占位标签。相邻密码、显式凭据格式和精确规则仍参与检查。已通过 Claude Code 的实际请求路径验证 Bash 合并输出与相邻密码扣留。
 
 ## Windows 清单程序集标识误报（0.2.6）
 

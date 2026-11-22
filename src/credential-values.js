@@ -8,6 +8,9 @@ export {placeholder,readQuoted} from './value-syntax.js';
 
 // Whole-value vocabulary, never substring stopwords such as "test" or "example".
 const labelWords = new Set('access refresh authentication authorization api client secret token password passwd key aws input field required optional'.split(' '));
+// In this complete placeholder shape every segment is descriptive. Other
+// sk-prefixed values still need the ordinary token evidence checks.
+const keyPlaceholder = /^sk-(?:dummy|example|fake|mock|sample|super|test)-secret-value$/;
 function descriptiveValue(value,name) {
   if(value.length>256)return false;
   const words=value.toLowerCase().split(/[_-]/);
@@ -81,7 +84,7 @@ export function secretValue(value, name='', budget=()=>{}, evidence='value') {
   const password=/pass(?:word|wd)/i.test(name);
   // This whole-value shape cannot contain interpolation or a secret atom.
   // Evaluate it before the more expensive expression/prose classifiers.
-  if(!password&&labelEvidence(value))return false;
+  if(!password&&(labelEvidence(value)||keyPlaceholder.test(value)))return false;
   if(value.length<8||placeholder(value)||/^(?:changeme|change_me|placeholder|redacted|your[_ -](?:api[_ -]?key|password|token|secret)(?:[_ -]here)?|insert[_ -](?:api[_ -]?key|password|token|secret)[_ -]here)$/i.test(value))return false;
   if(value.includes('${')||value.includes('{{')){
     for(const part of templateLiterals(value,budget))if(!templateLabel(part,name)&&secretValue(part,name,budget))return true;

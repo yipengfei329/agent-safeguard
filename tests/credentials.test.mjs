@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {compile} from './strict-engine.mjs';
+import {compile, defaults} from './strict-engine.mjs';
 import {credentialReason} from '../src/credentials.js';
 
 const clean = [
@@ -88,4 +88,36 @@ test('diagnostic reasons never include matched text',()=>{
  assert.equal(credentialReason('token=SYNTHETIC_TOKEN'),'unquoted-value');
  assert.equal(credentialReason('const token = "SYNTHETIC_TOKEN"'),'literal-value');
  assert.equal(credentialReason('SYNTHETIC_TOKEN','token'),'structured-value');
+});
+
+const fixtureToken = 'sk-dummy-secret-value';
+const goFixture = `func fixture() {\n  env := map[string]string{"APP_API_TOKEN": "${fixtureToken}"}\n}`;
+
+test('full descriptive key placeholders pass in token fields', () => {
+ const engine = compile();
+ for (const value of [
+  {stdout: goFixture + '\n1:func fixture() {\n', stderr: ''},
+  {stderr: goFixture, isError: true},
+  {apiToken: 'sk-super-secret-value'},
+ ]) assert.equal(engine.scan(value, 'tool.result', 'Bash').blocked, false);
+});
+
+test('key placeholders preserve adjacent, independently formatted, and exact detections', () => {
+ const engine = compile();
+ for (const [extra, rule] of [
+  [`password="${fixtureToken}"`, 'security.credentials'],
+  ['api_token="sk-dummy-secret-value-Z8r6W2m5"', 'security.credentials'],
+  ['api_token="sk-qrzvp-secret-value"', 'security.credentials'],
+  ['sk-ant-api03-' + 'Z'.repeat(36), 'security.credentials'],
+  [`https://acct:${fixtureToken}@service.example.invalid`, 'security.credentials'],
+  ['hostname: SyntheticHost', 'identity.environment'],
+  ['deviceId: SYNTHETIC123456', 'identity.device'],
+ ]) assert.equal(engine.scan(`${goFixture}\n${extra}`, 'tool.result', 'Bash').rule, rule, extra);
+ assert.equal(engine.scan({apiToken: 'sk-qrzvp-secret-value'}).rule, 'security.credentials');
+ const config = structuredClone(defaults);
+ config.rules.push({
+  id: 'custom.fixture', enabled: true, sources: ['tool.result'], action: 'block',
+  detector: {kind: 'exact', values: [fixtureToken], caseSensitive: true},
+ });
+ assert.equal(compile(config).scan(goFixture).rule, 'custom.fixture');
 });

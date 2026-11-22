@@ -1,12 +1,12 @@
 """Synthetic diagnostic and recovery requests against the actual Claude host.
 No private rules, user transcripts, accounts or device information are used.
 """
-import http.server, json, os, pathlib, queue, shutil, subprocess, tempfile, threading
+import http.server, json, os, pathlib, queue, shlex, shutil, subprocess, tempfile, threading
 from importlib.util import spec_from_file_location, module_from_spec
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 spec=spec_from_file_location('helpers',ROOT/'scripts/e2e-recovery.py'); helpers=module_from_spec(spec);spec.loader.exec_module(helpers)
 DEVICE='11111111-2222-4333-8444-555555555555'
-CASES=['input-batch','truncated-device','complete-device','summary','template-label','template-adjacent','template-opaque','diagnostic-write','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result','diagnostic-result-secret','manifest-public-key','manifest-adjacent-secret']
+CASES=['input-batch','truncated-device','complete-device','summary','template-label','template-adjacent','template-opaque','diagnostic-write','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result','diagnostic-result-secret','manifest-public-key','manifest-adjacent-secret','go-key-placeholder','go-key-adjacent-secret']
 
 def run_case(name):
  with tempfile.TemporaryDirectory(prefix='safeguard-diagnostics-') as tmp:
@@ -24,13 +24,22 @@ def run_case(name):
    fixture.write_text('const (\n errMissingPassword = "'+(synthetic_secret if name.endswith('-secret') else label)+'"\n)\n'+('password="'+label+'"' if name.endswith('-adjacent') else ''))
   if name.startswith('manifest-'):
    fixture.write_text('<assemblyIdentity name="Synthetic.App" publicKeyToken="a19c7e2d03f8b6a4" />\n' + ('api_key="' + synthetic_secret + '"\n' if name=='manifest-adjacent-secret' else ''))
+  bash_command='cat '+shlex.quote(str(fixture))
+  if name.startswith('go-key-'):
+   fixture=base/'fixture_test.go'
+   adjacent=f'  "APP_PASSWORD": "{synthetic_secret}",\n' if name=='go-key-adjacent-secret' else ''
+   fixture.write_text(
+    'package fixture\n\nfunc fixture() map[string]string {\n return map[string]string{\n'
+    '  "APP_API_TOKEN": "sk-dummy-secret-value",\n'+adjacent+' }\n}\n')
+   quoted_fixture=shlex.quote(str(fixture))
+   bash_command=f"sed -n '1,140p' {quoted_fixture}; grep -n '^func ' {quoted_fixture}"
   marker=base/'executed';target=base/'Fixture.swift';requests=[];outputs=[]
   class Handler(http.server.BaseHTTPRequestHandler):
    def log_message(self,*args):pass
    def do_POST(self):
     data=json.loads(self.rfile.read(int(self.headers['Content-Length'])));requests.append(data)
     if len(requests)==1:
-     blocks=([{'type':'tool_use','id':'write_fixture','name':'Write','input':{'file_path':str(target),'content':'let endpoint = "https://fixture:short@service.example.invalid"'}}, {'type':'tool_use','id':'later_bash','name':'Bash','input':{'command':'touch '+str(marker)}}] if name=='input-batch' else [{'type':'tool_use','id':'read_fixture','name':'Bash','input':{'command':'cat '+str(fixture)}}])
+     blocks=([{'type':'tool_use','id':'write_fixture','name':'Write','input':{'file_path':str(target),'content':'let endpoint = "https://fixture:short@service.example.invalid"'}}, {'type':'tool_use','id':'later_bash','name':'Bash','input':{'command':'touch '+str(marker)}}] if name=='input-batch' else [{'type':'tool_use','id':'read_fixture','name':'Bash','input':{'command':bash_command}}])
      if name.startswith('diagnostic-write'):blocks=[{'type':'tool_use','id':'write_diagnostic','name':'Write','input':{'file_path':str(target),'content':fixture.read_text()}}]
     else:blocks=[{'type':'text','text':'SAFE_FOLLOWUP_OK'}]
     msg={'id':'msg_fixture','type':'message','role':'assistant','model':data['model'],'content':blocks,'stop_reason':'tool_use' if blocks[0]['type']=='tool_use' else 'end_turn','stop_sequence':None,'usage':{'input_tokens':10,'output_tokens':10}}
@@ -55,7 +64,7 @@ def run_case(name):
    return json.loads(text[text.index('{'):text.rindex('}')+1])
   try:
    assert status()['ready'];send('Run the synthetic fixture.');result();before=len(requests)
-   blocked=name in ['input-batch','truncated-device','template-adjacent','template-opaque','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result-secret','manifest-adjacent-secret'];assert before==(1 if blocked else 2),(name,'request count')
+   blocked=name in ['input-batch','truncated-device','template-adjacent','template-opaque','diagnostic-write-secret','diagnostic-write-adjacent','diagnostic-result-secret','manifest-adjacent-secret','go-key-adjacent-secret'];assert before==(1 if blocked else 2),(name,'request count')
    state=status();assert state['blocked']==blocked
    if blocked:
     cause=state['diagnostic']['cause'];assert cause['rule']==('security.credentials' if name!='truncated-device' else 'identity.device')
@@ -70,6 +79,12 @@ def run_case(name):
     if not blocked:assert target.read_text()==fixture.read_text(),'Write content changed'
    if name=='manifest-public-key':assert 'a19c7e2d03f8b6a4' in helpers.normalized_strings(requests),'public manifest fingerprint did not arrive'
    if name=='manifest-adjacent-secret':assert synthetic_secret not in helpers.normalized_strings(requests),'held adjacent credential leaked'
+   if name=='go-key-placeholder':
+    sent=helpers.normalized_strings(requests)
+    assert 'sk-dummy-secret-value' in sent and '3:func fixture() map[string]string {' in sent,'combined Bash result did not arrive'
+   if name=='go-key-adjacent-secret':
+    assert synthetic_secret not in helpers.normalized_strings(requests),'held adjacent credential leaked'
+    assert cause['location']['line']==6 and cause['location']['field']=='password',cause['location']
    if name=='diagnostic-result':assert label in helpers.normalized_strings(requests),'diagnostic result not delivered'
    if name=='diagnostic-result-secret':assert synthetic_secret not in helpers.normalized_strings(requests),'held error-field secret leaked'
    send('FOLLOWUP_SAFE: skip the previous operation and answer without tools.');assert 'SAFE_FOLLOWUP_OK' in json.dumps(result());assert len(requests)==before+1
@@ -89,7 +104,7 @@ def run_case(name):
    if name in ['template-adjacent','template-opaque']:
     assert 'qR7_mN2-zP8_vL4-tX9' not in history,'held credential leaked in tool history'
     assert 'not a source-file line' in history,'missing safe coordinates'
-   if name in ['diagnostic-result-secret','manifest-adjacent-secret']:assert synthetic_secret not in history,'held error-field secret leaked in history'
+   if name in ['diagnostic-result-secret','manifest-adjacent-secret','go-key-adjacent-secret']:assert synthetic_secret not in history,'held credential leaked in history'
    if name=='summary':assert DEVICE not in helpers.normalized_strings(requests)
    return {'case':name,'passed':True,'firstRequests':before,'sameProcessRecovered':True,'scope':'synthetic actual host'}
   finally:
