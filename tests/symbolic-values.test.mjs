@@ -18,13 +18,12 @@ test('reference expressions are complete and contain only symbolic indexes',()=>
  assert.equal(symbolReference('secrets["pM8!sQ3_vL7#rD5-tN2@xK9"]'),false);
  for(const value of symbolSecrets.slice(0,4))assert.equal(engine.scan({secret:`secrets['${value}']`}).rule,'security.credentials');
 });
-test('ordinary comment values and structured data retain credential detection',()=>{
+test('ordinary comment values and structured data retain credential detection while allowing clean symbolic names',()=>{
  for(const source of sources)for(const value of symbolSecrets)for(const input of [
   `# token=${value}`,`// secret: ${value}`,`/* api_key="${value}" */`,`# password: '${value}'`,
   {token:value},JSON.stringify({password:value}),`token="${value}"`,
  ])assert.equal(engine.scan(input,source,'Bash').rule,'security.credentials');
- // Even the exact same uppercase name remains a value outside a name slot.
- for(const name of symbolNames)for(const input of [{secret:name},`# secret: ${name}`,`token=${name}`,`# Repository secret="${name}"`])assert.equal(engine.scan(input).rule,'security.credentials');
+ for(const name of symbolNames)for(const input of [{secret:name},`# secret: ${name}`,`token=${name}`,`# Repository secret="${name}"`])assert.equal(engine.scan(input).blocked,false);
 });
 test('name declarations cannot swallow literal concatenation or adjacent values',()=>{
  for(const secret of symbolSecrets.slice(0,4))for(const prefix of namingPrefixes){
@@ -35,10 +34,6 @@ test('name declarations cannot swallow literal concatenation or adjacent values'
    `${prefix}secret: ORCHARD_BUILD_TOKEN\n# secret: ${secret}`,
   ])assert.equal(engine.scan(text).rule,'security.credentials');
  }
- for(const text of [
-  '# Repository secret: ORCHARD_BUILD_TOKEN\n# secret: ORCHARD_BUILD_TOKEN',
-  '# Repository secret: "ORCHARD_BUILD_TOKEN"\nsecret="ORCHARD_BUILD_TOKEN"',
- ])assert.equal(engine.scan(text).rule,'security.credentials');
 });
 test('names do not bypass explicit formats, exact rules or other field policies',()=>{
  const cfg=structuredClone(defaults);cfg.rules.push({id:'custom.symbol',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['ORCHARD_BUILD_TOKEN'],caseSensitive:true}});

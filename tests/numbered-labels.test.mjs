@@ -15,13 +15,17 @@ test('labels cannot exempt adjacent or wrapped actual material',()=>{
   assert.equal(engine.scan({stdout:'const TOKEN: &str = "lanterns-24680";',stderr:`API_KEY="${secret}"`},source,'Bash').rule,'security.credentials');
  }
 });
-test('password and identity policies retain word-number values',()=>{
- for(const field of ['password','DB_PASSWORD','passwd'])for(const value of ['lanterns-24680','Lanterns24680','LANTERNS_24680'])assert.equal(engine.scan({[field]:value}).rule,'security.credentials');
+test('password and identity policies retain unsegmented mixed-case-number and identity values',()=>{
+ for(const field of ['password','DB_PASSWORD','passwd']){
+  assert.equal(engine.scan({[field]:'Lanterns24680'}).rule,'security.credentials');
+  for(const clean of ['lanterns-24680','LANTERNS_24680'])assert.equal(engine.scan({[field]:clean}).blocked,false);
+ }
  assert.equal(engine.scan({device_id:'lanterns-24680'}).rule,'identity.device');
  assert.equal(engine.scan({hostname:'lanterns-24680'}).rule,'identity.environment');
 });
 test('shape boundaries preserve stronger evidence and explicit overrides',()=>{
- for(const value of ['pM8sQ3vL7rD5tN2xK9','a19c7e2d03f8b6a4','lanterns-1234567890','Lanterns-24680!'])assert.ok(atomicEvidence(value));
+ for(const value of ['pM8sQ3vL7rD5tN2xK9','a19c7e2d03f8b6a4a19c7e2d03f8b6a4','lanterns-1234567890','Lanterns-24680!'])assert.ok(atomicEvidence(value));
+ assert.equal(atomicEvidence('a19c7e2d03f8b6a4'),null);
  for(const value of ['<binding:lanterns-24680>','Bearer lanterns-24680','lanterns-24680${SUFFIX}'])assert.equal(engine.scan({token:value}).blocked,false);
  const cfg=structuredClone(defaults);cfg.rules.push({id:'custom.numbered',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['lanterns-24680'],caseSensitive:true}});
  assert.equal(compile(cfg).scan({token:'lanterns-24680'}).rule,'custom.numbered');
@@ -31,7 +35,7 @@ test('shape boundaries preserve stronger evidence and explicit overrides',()=>{
 test('value decisions are local to roles and cannot skip multiline suffixes',()=>{
  const secret=protectedValues[0];
  for(const text of [
-  'token="lanterns-24680";\npassword="lanterns-24680";',
+  'token="Lanterns24680";\npassword="Lanterns24680";',
   'token="lanterns-24680";\ntoken="lanterns-24680" + "'+secret+'";',
   'token="<binding:" + """\nslot>""";\ntoken="<binding:" + """\n'+secret+'>""";',
   'token="""slot\nvalue""";\ntoken="""slot\n'+secret+'""";',

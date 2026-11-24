@@ -94,7 +94,7 @@
   {
     "name": "代理密码",
     "value": {
-      "password": "SYNTHETIC_SECRET"
+      "password": "sY9!nT4_hE7#tI2-cK8"
     },
     "block": true
   },
@@ -169,7 +169,7 @@
   },
   {
     "name": "路径与凭据同时出现",
-    "value": "/home/example/project password=SYNTHETIC_SECRET",
+    "value": "/home/example/project password=sY9!nT4_hE7#tI2-cK8",
     "block": true
   },
   {
@@ -184,7 +184,7 @@
   },
   {
     "name": "邮箱和凭据混合",
-    "value": "contact: person@example.invalid password=SYNTHETIC_SECRET",
+    "value": "contact: person@example.invalid password=sY9!nT4_hE7#tI2-cK8",
     "block": true
   }
 ]

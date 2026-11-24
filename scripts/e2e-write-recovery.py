@@ -72,7 +72,7 @@ export function compile(...args){const e=actual(...args),scan=e.scan;let faulted
    before=status();assert before['recovery']['state']==('active' if name=='clean' else 'faulted')
    if name=='timeout-snapshot':(plugin/'local/rules.json').write_text('{invalid')
    if name in ['timeout-rejected-input','timeout-snapshot']:
-    send('password=SYNTHETIC_RETRY_SECRET');result();assert len(requests)==initial;assert status()['recovery']['state']=='faulted'
+    send('password=sY9!nT4_hE7#tI2-cK8');result();assert len(requests)==initial;assert status()['recovery']['state']=='faulted'
    send('FOLLOWUP_SAFE: skip the failed operation and answer without tools.');follow=result()
    if baseline:
     assert name=='timeout';assert len(requests)==initial;assert 'recovery.health-required' in json.dumps(follow)
@@ -91,7 +91,7 @@ export function compile(...args){const e=actual(...args),scan=e.scan;let faulted
      assert 'SAFEGUARD_HEALTH_OK' in json.dumps(check)
      send('FOLLOWUP_SAFE: continue without tools.');assert 'SAFE_FOLLOWUP_OK' in json.dumps(result());assert len(requests)==initial+1
    after=status()
-   assert 'SYNTHETIC_RETRY_SECRET' not in json.dumps(requests),(name,'rejected input reached a model request')
+   assert 'sY9!nT4_hE7#tI2-cK8' not in json.dumps(requests),(name,'rejected input reached a model request')
    if name=='timeout-probe-fails':assert after['recovery']['state']=='faulted'
    else:assert after['recovery']['state']=='active'
    assert target.exists()==(name=='clean'),(name,'held operation replayed')

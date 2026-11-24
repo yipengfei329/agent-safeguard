@@ -1,7 +1,9 @@
 import ipaddr from 'ipaddr.js';
 // The same boundaries serve both blocking and transformation. Offsets are UTF-16.
 const pattern=/(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w]|\.[\w.])|(?<![\w:])(?:[a-fA-F0-9]{0,4}:){2,}[a-fA-F0-9:.]*(?:%[\w.-]+)?(?![\w:%])/g;
+const quickIP=/\d\.\d|[0-9a-fA-F]:[0-9a-fA-F:]|:[0-9a-fA-F]{1,4}:/;
 export function* ipMatches(text){
+ if(!quickIP.test(text))return;
  for(const m of text.matchAll(pattern)){
   const value=m[0].replace(/\.+$/,'');
   try{if(ipaddr.isValid(value))yield {start:m.index,end:m.index+value.length,ip:ipaddr.parse(value)};}catch{}

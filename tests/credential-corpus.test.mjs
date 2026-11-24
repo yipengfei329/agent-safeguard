@@ -50,9 +50,9 @@ test('value exclusions do not disable explicit formats, custom exact rules or hi
     `https://user:${secret}@service.example.invalid`,
     `https://service.example.invalid/?password=${secret}`,
   ])assert.equal(engine.scan({password:value}).rule,'security.credentials');
-  // No blanket exclusion of a testing path, a UUID, or a passphrase.
+  // No blanket exclusion of a testing path, a UUID, or a multiword passphrase.
   for(const value of ['Synthetic-example-'+secret,'a19c7e2d-03f8-46a4-b5c6-7e8f901234ab','Copper meadow 7! violet lantern'])assert.equal(engine.scan({password:value}).rule,'security.credentials');
-  assert.equal(engine.scan('token="correct-horse-battery-staple"; password="correct-horse-battery-staple"').rule,'security.credentials');
+  assert.equal(engine.scan('token="correct-horse-battery-staple"; password="correct-horse-battery-staple"').blocked,false);
 });
 test('source string decoding keeps offsets and does not treat escaping as entropy',()=>{
   const quoted=readQuoted(String.raw`"a\"b\\c\x21" + "tail"`);

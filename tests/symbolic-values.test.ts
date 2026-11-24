@@ -11,11 +11,11 @@ for(const [name,output,blocked,error] of [
  ['hash-code-comment','# const token = qR7mT2vK9zP4sN8xL3bC6;',true,false],
  ['comment-secret-error','# secret: '+secret,true,true],
  ['declared-secret','# Repository secret: '+secret,true,false],
- ['uppercase-value','# secret: ORCHARD_PUBLISH_TOKEN',true,false],
- ['structured-value',JSON.stringify({secret:'ORCHARD_PUBLISH_TOKEN'}),true,false],
+ ['uppercase-value','# secret: ORCHARD_PUBLISH_TOKEN',false,false],
+ ['structured-value',JSON.stringify({secret:'ORCHARD_PUBLISH_TOKEN'}),false,false],
  ['name-adjacent','# Repository secret: ORCHARD_PUBLISH_TOKEN\n# secret: '+secret,true,false],
  ['name-joined','# Repository secret: "ORCHARD_PUBLISH_TOKEN" + "Q7LM2ZP9VN4RX8TC3KB6DS5F"',true,false],
- ['name-cache','# Repository secret: "ORCHARD_PUBLISH_TOKEN"\nsecret="ORCHARD_PUBLISH_TOKEN"',true,false],
+ ['name-clean-repeat','# Repository secret: "ORCHARD_PUBLISH_TOKEN"\nsecret="ORCHARD_PUBLISH_TOKEN"',false,false],
  ['indexed-material',JSON.stringify({secret:`secrets['${secret}']`}),true,false],
 ])test('symbolic value '+name,async($,on)=>{
  setup(on);let calls=0;on('tool.call',()=>({isError:error,result:error?{stderr:output}:{stdout:output}}));

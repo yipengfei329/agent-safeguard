@@ -22,7 +22,7 @@ for(const [ip,state] of [['203.0.113.9',0],['203.0.113.10',1],['203.0.113.20',1]
 test('other and unknown never exempt adjacent secrets, hostnames or later CN addresses',()=>{
  for(const allowed of ['203.0.113.9','203.0.113.30']){
   assert.equal(e.scan(allowed).blocked,false);
-  for(const sensitive of ['203.0.113.10','password=SYNTHETIC_SECRET','hostname: ExampleMac','serialNumber: SYNTHETIC12345'])assert.equal(e.scan(allowed+' '+sensitive).blocked,true);
+  for(const sensitive of ['203.0.113.10','password=sY9!nT4_hE7#tI2-cK8','hostname: ExampleMac','serialNumber: SYNTHETIC12345'])assert.equal(e.scan(allowed+' '+sensitive).blocked,true);
  }
  assert.equal(e.scan({content:[{type:'text',text:JSON.stringify({peer:'203.0.113.10'})}]}).rule,'network.address');
  assert.equal(e.scan('203.0.\x1b[31m113.10.').rule,'network.address');

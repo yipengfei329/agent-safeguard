@@ -4,7 +4,7 @@ not the model's tool arguments. No real credentials or user configuration.
 import http.server,json,os,pathlib,queue,re,shlex,shutil,subprocess,tempfile,threading,time
 ROOT=pathlib.Path(__file__).resolve().parent.parent
 CLAUDE=os.environ.get('SAFEGUARD_CLAUDE_BIN') or shutil.which('claude')
-IP='203.0.113.17'; SECRET='SYNTHETIC_RECOVERY_SECRET'
+IP='203.0.113.17'; SECRET='sY9!nT4_hE7#tI2-cK8'
 TEST_ADDRESS_LINE='    time=2026-01-15T12:00:00.123Z level=INFO msg="IPv6 endpoint listening" addr=[2001:db8::7]:8080\n'
 TEST_LOG=TEST_ADDRESS_LINE+(
  '--- FAIL: TestSynthetic (0.10s)\n'
@@ -13,6 +13,7 @@ TEST_LOG=TEST_ADDRESS_LINE+(
  '    testing.tRunner(0x1, {0x2})\n'
 )
 TEST_TAIL=TEST_ADDRESS_LINE+'FAIL\texample.invalid/test/e2e\t0.118s\nFAIL\n'
+PLAYWRIGHT_LOG=TEST_ADDRESS_LINE+'  1) fixture.spec.ts:8:3 › a test failed; includes a diagnostic title\n'
 CASES=[
  ('clean','BUILD_OK',False,'pass'),
  ('ip','peer='+IP,False,'redact'),
@@ -26,9 +27,11 @@ CASES=[
  ('numbered-test-log',TEST_LOG,False,'redact'),
  ('numbered-test-stderr',TEST_LOG,True,'redact'),
  ('numbered-test-credential',TEST_LOG+'    password='+SECRET+'\n',False,'block'),
- ('numbered-test-source',TEST_LOG+'    func synthetic() {\n',False,'block'),
+ ('numbered-test-source',TEST_LOG+'    func synthetic() { send("'+IP+'") }\n',False,'block'),
  ('mixed-test-log',TEST_TAIL,False,'redact'),
  ('mixed-test-source-ip',TEST_TAIL,False,'block'),
+ ('playwright-log-source',PLAYWRIGHT_LOG,False,'redact'),
+ ('playwright-source-ip',PLAYWRIGHT_LOG,False,'block'),
  ('credential','password='+SECRET,False,'block'),
  ('stderr-credential','password='+SECRET,True,'block'),
  ('stderr-code','const peer="'+IP+'";',True,'block'),
@@ -85,6 +88,10 @@ def run_case(case):
    (b/'fixture.go').write_text('package fixture\n\n'+source+'\n')
    source_pattern=shlex.quote('"message", "send"')
    command=f'git grep -n --no-index -- {source_pattern} fixture.go | head -3; tail -30 {quoted_fixture}'
+  if name.startswith('playwright-'):
+   source=f'const peer = "{IP}";' if name=='playwright-source-ip' else 'const setup = () => { return {active: true}; };'
+   (b/'fixture.spec.ts').write_text(source+'\n')
+   command=f"sed -n '1,2p' {quoted_fixture}; sed -n '1p' fixture.spec.ts"
   if error:command='{ '+command+'; } >&2; exit 7'
   requests=[]
   class H(http.server.BaseHTTPRequestHandler):
@@ -141,6 +148,9 @@ def run_case(case):
    if name=='mixed-test-log':
     assert 'fixture.go:3:var fields = []string{"message", "send"}' in raw,(name,'source content changed')
     assert 'addr=[[IP_1]]:8080' in raw and 'example.invalid/test/e2e' in raw,(name,'test output changed')
+   if name=='playwright-log-source':
+    assert 'addr=[[IP_1]]:8080' in raw and 'a test failed; includes a diagnostic title' in raw,(name,'test log changed')
+    assert 'const setup = () => { return {active: true}; };' in raw,(name,'source content changed')
    if error and action=='redact':
     results=[c for d in requests for m in d.get('messages',[]) if isinstance(m.get('content'),list) for c in m['content'] if c.get('type')=='tool_result']
     assert any(c.get('is_error') for c in results),(name,'error status lost')

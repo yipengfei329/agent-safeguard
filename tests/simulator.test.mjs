@@ -18,7 +18,7 @@ for(const [i,value] of allowed.entries())for(const [j,wrap] of wrappers.entries(
  for(const source of ['user.prompt','tool.input','tool.result','prompt.context'])assert.equal(e.scan(wrap(value),source,'Bash').blocked,false);
  // Never allow a whole result because it contains a simulator.
  assert.equal(e.scan({result:wrap(value),other:{deviceId:uuid}}).rule,'identity.device');
- assert.equal(e.scan({result:wrap(value),other:'password=SYNTHETIC_PASSWORD'}).rule,'security.credentials');
+ assert.equal(e.scan({result:wrap(value),other:'password=sY9!nT4_hE7#tI2-cK8'}).rule,'security.credentials');
 });
 const rejected=[
  {deviceId:uuid}, {...record,platform:'iOS'}, {...record,platform:'macOS'},

@@ -1,6 +1,6 @@
 import {test,expect} from 'claude-code/testing';
 import {defaults} from '../dist/core.js';
-const samples=[['network.address','2001:db8::7.'],['identity.device','serialNumber: SYNTHETIC12345'],['identity.environment','hostname: ExampleMac'],['security.credentials','password=SYNTHETIC_PASSWORD'],['personal.synthetic-value','SYNTHETIC_DEVICE_ID_0001'],['personal.synthetic-domain','PRIVATE.EXAMPLE.INVALID.'],['personal.synthetic-subnet','203.0.113.27']];
+const samples=[['network.address','2001:db8::7.'],['identity.device','serialNumber: SYNTHETIC12345'],['identity.environment','hostname: ExampleMac'],['security.credentials','password=sY9!nT4_hE7#tI2-cK8'],['personal.synthetic-value','SYNTHETIC_DEVICE_ID_0001'],['personal.synthetic-domain','PRIVATE.EXAMPLE.INVALID.'],['personal.synthetic-subnet','203.0.113.27']];
 for(const [id,value] of samples)test(id+' blocks a mixed result and prevents later dispatch',async($,on)=>{
  const c=JSON.parse(JSON.stringify(defaults));c.rules=c.rules.filter(r=>r.id===id);c.rules[0].enabled=true;if(id==='network.address'){c.rules[0].detector.mode='any';delete c.rules[0].detector.country;delete c.rules[0].detector.onUnknown;}c.rules[0].sources=['tool.result'];
  on('fs.exists',($,e)=>({value:!e.path.endsWith('desktop.json')}));on('fs.read',()=>({value:JSON.stringify(c)}));on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/work'}));on('turn.start',($,e)=>({turnId:e.turnId}));on('turn.abort',()=>({value:undefined}));

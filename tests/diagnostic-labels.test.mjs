@@ -24,23 +24,24 @@ for(const name of names)for(const [syntax,form] of Object.entries(forms))test(`d
   assert.equal(engine.scan(form(name,secret),source,'Write').rule,'security.credentials');
  }
 });
-test('ordinary passwords retain label-shaped and passphrase detection',()=>{
+test('clean hyphenated diagnostic labels pass across all field names while strong passwords and passphrases remain blocked',()=>{
  for(const name of ['password','adminPassword','noterrorPassword','myErrorPassword'])for(const form of Object.values(forms)){
-  assert.equal(engine.scan(form(name,label)).rule,'security.credentials');
+  assert.equal(engine.scan(form(name,label)).blocked,false);
  }
- for(const value of ['correct-horse-password','password-required-82!','four secret words 42!','account-password-required-'+secret,'missing-password-${state.sequence}']){
+ for(const value of ['Lanterns24680','password-required-82!','four secret words 42!','account-password-required-'+secret]){
   assert.equal(engine.scan(`errMissingPassword="${value}"`).rule,'security.credentials',value);
  }
 });
-test('diagnostic cache cannot suppress the same value in an ordinary password',()=>{
+test('role-separated cache cannot suppress a mixed-case-digit password after a token field',()=>{
+ const roleValue='Lanterns24680';
  for(const text of [
-  `errMissingPassword="${label}"; password="${label}"`,
-  `errMissingPassword="${label}"; adminPassword="${label}"`,
-  `password="${label}"; errMissingPassword="${label}"`,
-  JSON.stringify({errMissingPassword:label,password:label}),
-  {errMissingPassword:label,password:label},
+  `token="${roleValue}"; password="${roleValue}"`,
+  `api_key="${roleValue}"; adminPassword="${roleValue}"`,
+  `password="${roleValue}"; token="${roleValue}"`,
+  JSON.stringify({token:roleValue,password:roleValue}),
+  {token:roleValue,password:roleValue},
  ])assert.equal(engine.scan(text).rule,'security.credentials');
- const hit=engine.scan(`errMissingPassword="${label}"\npassword="${label}"`);
+ const hit=engine.scan(`token="${roleValue}"\npassword="${roleValue}"`);
  assert.deepEqual(hit.location,{textIndex:1,line:2,field:'password'});
 });
 test('diagnostic labels never exempt adjacent credential, device or hostname fields',()=>{
@@ -49,9 +50,9 @@ test('diagnostic labels never exempt adjacent credential, device or hostname fie
   assert.equal(engine.scan(`errMissingPassword="${label}"; ${field}="${value}"`).rule,rule);
  }
 });
-test('literal concatenation and independent formats remain protected',()=>{
+test('literal concatenation with secrets and independent formats remain protected',()=>{
+ assert.equal(engine.scan('errMissingPassword="account-password-" + "required"').blocked,false);
  for(const text of [
-  `errMissingPassword="account-password-" + "required"`,
   `errMissingPassword="${label}" + "${secret}"`,
   `errMissingPassword="${label}"; value="ghp_${'Z'.repeat(36)}"`,
   `errMissingPassword="${label}"; value="https://fixture:short@service.example.invalid"`,

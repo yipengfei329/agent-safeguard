@@ -23,7 +23,7 @@ test('grep command label and boolean expression reach next model step',async($,o
 });
 test('real secret adjacent to allowed code stops the next model step',async($,on)=>{
   setup(on);let calls=0;
-  on('tool.call',()=>({result:{stdout:source,stderr:'password=SYNTHETIC_PASSWORD'}}));
+  on('tool.call',()=>({result:{stdout:source,stderr:'password=sY9!nT4_hE7#tI2-cK8'}}));
   on('turn.step',async function*(){calls++;return {turnId:'t',index:1,answer:'sent',toolUses:[],stopReason:'end_turn',usage:null};});
   await $.session.start({cwd:'/work',surface:null,isInteractive:false});
   await $.turn.start({turnId:'t',text:'probe'});

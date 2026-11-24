@@ -8,8 +8,8 @@ test('unsupported binary contents pass by default without decoding or counting b
 });
 test('binary block never exempts adjacent text or metadata',()=>{
  const e=compile();
- for(const content of [[image,{type:'text',text:'password=SYNTHETIC_PASSWORD'}],[{type:'text',text:'203.0.113.7'},image]])assert.equal(e.scan({content}).blocked,true);
- assert.equal(e.scan({...image,caption:'token=SYNTHETIC_TOKEN'}).rule,'security.credentials');
+ for(const content of [[image,{type:'text',text:'password=sY9!nT4_hE7#tI2-cK8'}],[{type:'text',text:'203.0.113.7'},image]])assert.equal(e.scan({content}).blocked,true);
+ assert.equal(e.scan({...image,caption:'token=sY9!nT4_hE7#tI2-cK8'}).rule,'security.credentials');
  assert.equal(e.scan({type:'resource_link',uri:'https://203.0.113.7/file'}).rule,'network.address');
 });
 test('strict unsupported policy remains selectable',()=>{

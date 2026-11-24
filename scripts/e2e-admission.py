@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 spec = spec_from_file_location('helpers', ROOT / 'scripts/e2e-recovery.py')
 helpers = module_from_spec(spec); spec.loader.exec_module(helpers)
 CASES = ['clean', 'handled', 'drop', 'exception', 'recovered-handled', 'queued-sdk']
-SECRET = 'SYNTHETIC_ADMISSION_SECRET'
+SECRET = 'sY9!nT4_hE7#tI2-cK8'
 
 def run_case(name):
  with tempfile.TemporaryDirectory(prefix='safeguard-admission-') as tmp:

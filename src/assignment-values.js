@@ -14,10 +14,6 @@ const codeRHS = /^(?:[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)*(?:\([^\r\n]*|(?:\
 const expressionStart=/^(?:(?:await|try|new|yield|lambda|async|return|throw)[ \t]+\S|[A-Za-z_$][\w$]*(?:[?.][A-Za-z_$][\w$]*)*\s*[([])/;
 const memberReference=/^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+(?=$|[\s,;})])/;
 const dynamicTail=/^[ \t]*(?:[+?]|\?\.|\.(?:[A-Za-z_]\w*)\s*\(|(?:if|and|or)\b)/;
-// A semantic qualifier plus a colon describes a name slot. Bare `secret:` or
-// `password=` remains value-bearing even in a comment. This is candidate-local,
-// and each policy decides whether identifier-shaped data can be a name.
-const nameDeclarationPrefix=/(?:^|[\s#/*>])(?:repository|repo|organization|org|environment|workflow|required|optional|variable|constant|reference)(?:[ \t]+(?:repository|repo|organization|org|environment|workflow|required|optional|variable|constant|reference))*[ \t]+$/i;
 const interpolation=/\$\{|\{\{|\\\(/;
 
 function literalArgument(rhs, isValue) {
@@ -76,53 +72,37 @@ function annotationEnd(rhs, allowString=false){
 export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
   const {field:fieldMatcher,key:keyMatcher,marker}=policy.matchers;
   let fieldName=keyMatcher.test(key)?policy.classify(key):null;
-  let fieldEvidence=fieldName?policy.evidence?.(key)||'value':'value';
-  let evidence=typeof fieldEvidence==='function'?'value':fieldEvidence;
-  const negativeValues=new Map(),negativeNames=new Map(),negativeDiagnostics=new Map();
-  let negativeContextual;
+  const negativeValues=new Map();
   const fieldKinds=new Map(),prefixContexts=new Map();
-  const valuePresent=(value,kind=evidence)=>{
-    // Keep ordinary fields separate from syntax-dependent classifications.
-    let caches=negativeValues;
-    if(kind==='symbol-name')caches=negativeNames;
-    else if(kind==='diagnostic-label')caches=negativeDiagnostics;
-    else if(kind!=='value'){
-      negativeContextual??=new Map();
-      if(!negativeContextual.has(kind))negativeContextual.set(kind,new Map());
-      caches=negativeContextual.get(kind);
-    }
-    let cache=caches.get(fieldName);
-    if(!cache){cache=new Set();caches.set(fieldName,cache);}
+  const valuePresent=value=>{
+    let cache=negativeValues.get(fieldName);
+    if(!cache){cache=new Set();negativeValues.set(fieldName,cache);}
     if(value.length<=256&&cache.has(value))return false;
-    const result=policy.accept(value,fieldName,budget,kind);
+    const result=policy.accept(value,fieldName,budget);
     if(!result&&value.length<=256&&cache.size<128)cache.add(value);
     return result;
   };
-  const literalPresent=(value,kind=evidence)=>(policy.allowDynamic!==false||!interpolation.test(value))?valuePresent(value,kind):false;
+  const literalPresent=value=>(policy.allowDynamic!==false||!interpolation.test(value))?valuePresent(value):false;
   function quotedReason(rhs) {
     const quoted=readSourceQuoted(rhs);
     if (quoted!==null) {
       const rest=rhs.slice(quoted.length);
       if (/^(?:Bearer|Basic) $/.test(quoted.value) && /^[ \t]*\+[ \t]*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[ \t]*(?:;|$)/.test(rest)) return null;
       if (/^(?:Bearer|Basic) \$\{[A-Za-z_$][\w$.]*\}$/.test(quoted.value)) return null;
-      let combined=quoted.value,tail=rest,joined=false;
+      let combined=quoted.value,tail=rest;
       for(let i=0;i<8;i++){
         const join=tail.match(/^[ \t]*\+[ \t]*(?=["'`])/);if(!join)break;
         tail=tail.slice(join[0].length);const part=readQuoted(tail);if(part===null)break;
-        combined+=part.value;tail=tail.slice(part.length);joined=true;
+        combined+=part.value;tail=tail.slice(part.length);
       }
       if(policy.allowDynamic===false&&dynamicTail.test(tail))return null;
-      // Literal concatenation produces a value, not a single symbolic name.
-      const kind=joined?'value':evidence;
-      if(literalPresent(combined,kind)||/^(?:Bearer|Basic) /.test(combined)&&literalPresent(combined.replace(/^(?:Bearer|Basic) /,''),kind))return 'literal-value';return null;
+      if(literalPresent(combined)||/^(?:Bearer|Basic) /.test(combined)&&literalPresent(combined.replace(/^(?:Bearer|Basic) /,'')))return 'literal-value';return null;
     }
     return undefined;
   }
   function candidateReason(m,start,before,rawRHS) {
     // Bound context work even for minified/generated code on one long line.
     const prefix=before.slice(before.lastIndexOf('\n')+1);
-    evidence=typeof fieldEvidence==='function'?'value':fieldEvidence;
-    if(m[2]===':'&&!m[1]&&nameDeclarationPrefix.test(prefix))evidence='symbol-name';
     // A quoted switch label is not a field. Exact boundaries already exclude ask-secret.
     if (/\bcase[ \t]+$/.test(prefix)) return null;
     let rhs=rawRHS.replace(/^[ \t]+/,'');
@@ -148,7 +128,6 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     // its complete value/concatenation before constructing code-prefix context.
     // The same parser handles the slower annotated/colon path below.
     if(m[2]==='='&&/^["'`rRuUbB]/.test(rhs)){
-      if(!m[1]&&typeof fieldEvidence==='function')evidence=fieldEvidence(before,rhs);
       const result=quotedReason(rhs);
       if(result!==undefined){if(result)return result;return null;}
     }
@@ -242,12 +221,11 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     if(fieldKinds.has(m[0]))field=fieldKinds.get(m[0]);
     else{
       const name=m[0].slice(0,m[0].lastIndexOf(m[2])).trim();
-      const kind=policy.classify(name);
-      field=kind?{kind,evidence:policy.evidence?.(name)||'value'}:null;
+      field=policy.classify(name);
       if(m[0].length<=256&&fieldKinds.size<128)fieldKinds.set(m[0],field);
     }
     if(!field)continue;
-    fieldName=field.kind;fieldEvidence=field.evidence;
+    fieldName=field;
     const start=m.index+m[0].length;
     const before=input.slice(Math.max(0,m.index-256),m.index),rawRHS=input.slice(start,start+1024);
     // Memoize only an identical candidate and every byte of context the parser

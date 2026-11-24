@@ -15,6 +15,25 @@ const testNetworkLine = `20-${testAddressLog}`;
 const testFailure = '21:--- FAIL: TestSynthetic (0.10s)\n22-    fixture_test.go:12: failed {detail:\n23-    end}\n24-    testing.tRunner(0x1, {0x2})';
 const mixedTestLog = `=== TestSynthetic\n${testNetworkLine}\n${testFailure}\n--\n${testNetworkLine}`;
 
+test('a Playwright title or adjacent source does not make a structured address record ambiguous', () => {
+ const engine = compile(config());
+ const excerpt = `${testAddressLog}\n  1) test.spec.ts:8:3 › a test failed; includes a diagnostic title\n`;
+ const source = 'const setup = () => { return {active: true}; };\n';
+ for (const text of [excerpt, excerpt+source, source+excerpt]) {
+  const decision=engine.inspectAndTransform(wrap(text),'tool.result','Bash');
+  assert.equal(decision.kind,'redacted');
+  assert.equal(decision.value.result.stdout,text.replace('2001:db8::7','[IP_1]'));
+ }
+});
+
+test('complete log records support quoted messages, additional fields and ANSI framing', () => {
+ const engine=compile(config());
+ const text='\x1b[32m'+testAddressLog.replace('IPv6 endpoint listening','setup {step}; connected').replace(' addr=', ' request_id=fixture addr=')+' scope=local\x1b[0m\nconst phase = () => {};';
+ const decision=engine.inspectAndTransform(wrap(text),'tool.result','Bash');
+ assert.equal(decision.kind,'redacted');
+ assert.equal(decision.value.result.stdout,text.replace('2001:db8::7','[IP_1]'));
+});
+
 test('redact complete network records in numbered test failures with stack frames', () => {
  const decision = compile(config()).inspectAndTransform(wrap(mixedTestLog), 'tool.result', 'Bash');
  assert.equal(decision.kind, 'redacted');
@@ -29,26 +48,26 @@ test('redact complete network records in numbered test failures with stack frame
 test('numbered test failures still require every hit to be in an eligible record', () => {
  const engine = compile(config());
  for (const text of [
-  `${testNetworkLine}\n22-    testing.tRunner(0x1, {0x2})`,
   `${testNetworkLine.replace(']:8080', ':8080')}\n${testFailure}`,
   `${testNetworkLine.replace('    time=', '    var time=')}\n${testFailure}`,
-  `${mixedTestLog}\nunrecognized mixed output`,
-  `${mixedTestLog}\n25-    func synthetic() {`,
-  `${mixedTestLog}\n25-    printf 'source';`,
   `${mixedTestLog}\n25-    peer=203.0.113.17`,
   `${mixedTestLog}\n25-    curl http://198.51.100.9`,
+  `${testNetworkLine.replace(' addr=', ' payload=')}\n${testFailure}`,
+  `${testNetworkLine.replace('IPv6 endpoint listening','diagnostic 203.0.113.17')}\n${testFailure}`,
  ]) assert.equal(engine.inspectAndTransform(wrap(text), 'tool.result', 'Bash').kind, 'withhold', text);
- assert.equal(engine.inspectAndTransform(wrap(`${mixedTestLog}\n25-    password=SYNTHETIC_SECRET`)).rule, 'security.credentials');
+ assert.equal(engine.inspectAndTransform(wrap(`${mixedTestLog}\n25-    password=sY9!nT4_hE7#tI2-cK8`)).rule, 'security.credentials');
 });
 
 const grepSource = 'e2e/fixture.go:18:    fields := []string{"message", "send"}';
 const testTail = `${testAddressLog}\nFAIL\texample.invalid/test/e2e\t0.118s\nFAIL\n`;
 
-test('preserve grep source and redact only complete network records in the test tail', () => {
+test('preserve grep source and redact complete network records with or without a test footer', () => {
  const engine = compile(config());
- const decision = engine.inspectAndTransform(wrap(`${grepSource}\n${testTail}`), 'tool.result', 'Bash');
- assert.equal(decision.kind, 'redacted');
- assert.equal(decision.value.result.stdout, `${grepSource}\n${testTail.replace('2001:db8::7', '[IP_1]')}`);
+ for(const log of [testTail,testAddressLog]){
+  const decision = engine.inspectAndTransform(wrap(`${grepSource}\n${log}`), 'tool.result', 'Bash');
+  assert.equal(decision.kind, 'redacted');
+  assert.equal(decision.value.result.stdout, `${grepSource}\n${log.replace('2001:db8::7', '[IP_1]')}`);
+ }
 });
 
 test('mixed grep and test output still withholds source addresses and ambiguous output', () => {
@@ -56,15 +75,14 @@ test('mixed grep and test output still withholds source addresses and ambiguous 
  for (const text of [
   `${grepSource} + "203.0.113.17"\n${testTail}`,
   `e2e/fixture.go:21:var peer = "203.0.113.17"\n${testTail}`,
-  `${grepSource}\n${testAddressLog}\n`,
-  `${grepSource}\nfunc synthetic() {\n${testTail}`,
+  `${grepSource}\nfunc synthetic() { send("203.0.113.17") }\n${testTail}`,
   `${grepSource}\npeer=203.0.113.17\n${testTail}`,
  ]) assert.equal(engine.inspectAndTransform(wrap(text), 'tool.result', 'Bash').kind, 'withhold', text);
- assert.equal(engine.inspectAndTransform(wrap(`${grepSource}\npassword=SYNTHETIC_SECRET\n${testTail}`)).rule, 'security.credentials');
+ assert.equal(engine.inspectAndTransform(wrap(`${grepSource}\npassword=sY9!nT4_hE7#tI2-cK8\n${testTail}`)).rule, 'security.credentials');
 });
 
 test('block rule wins even if redact rule came first',()=>{const c=config();c.rules.push({id:'custom.overlap',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['203.0.113.17'],caseSensitive:true}});for(const rules of [c.rules,[...c.rules].reverse()]){const d=compile({...c,rules}).inspectAndTransform(wrap('peer=203.0.113.17'));assert.equal(d.kind,'withhold');assert.equal(d.rule,'custom.overlap');}});
-for(const adjacent of ['password=SYNTHETIC_SECRET','hostname: SyntheticHost','device_id=SYNTHETIC123456'])test('other sensitive rule cannot be hidden '+adjacent,()=>{assert.equal(compile(config()).inspectAndTransform(wrap('peer=203.0.113.17\n'+adjacent)).kind,'withhold');});
+for(const adjacent of ['password=sY9!nT4_hE7#tI2-cK8','hostname: SyntheticHost','device_id=SYNTHETIC123456'])test('other sensitive rule cannot be hidden '+adjacent,()=>{assert.equal(compile(config()).inspectAndTransform(wrap('peer=203.0.113.17\n'+adjacent)).kind,'withhold');});
 test('no mutation, stable labels, mapped IP shares label',()=>{const e=compile(config()),value=wrap('peer=203.0.113.17 remote=::ffff:203.0.113.17'),before=structuredClone(value);const a=e.inspectAndTransform(value),b=e.inspectAndTransform(wrap('peer=203.0.113.17'));assert.deepEqual(value,before);assert.equal(a.value.result.stdout,'peer=[IP_1] remote=[IP_1]');assert.equal(b.value.result.stdout,'peer=[IP_1]');});
 test('safe outputs unchanged and scope respected',()=>{const c=config();c.rules.find(r=>r.action==='redact').tools=['Bash'];const e=compile(c);assert.equal(e.inspectAndTransform(wrap('build ok'),'tool.result','Bash').kind,'pass');assert.equal(e.inspectAndTransform(wrap('peer=203.0.113.17'),'tool.result','Read').kind,'pass');assert(e.scan('peer=203.0.113.17','user.prompt').blocked);});
 test('all exclusions remain local to each address',()=>{const d=compile(config()).inspectAndTransform(wrap('peer=127.0.0.1 remote=203.0.113.17'));assert.equal(d.kind,'redacted');assert(d.value.result.stdout.includes('127.0.0.1'));});

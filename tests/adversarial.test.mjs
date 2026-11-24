@@ -20,12 +20,13 @@ const clean=[
  'Author: Example <person@example.invalid> /Users/example/src',
  'http://127.0.0.1:8080 10.2.3.4 [fd00::3] fe80::1%en0',
  'notprivate.example.invalid private.example.invalid.evil.invalid',
+ 'hostname: localhost', 'hostname: 127.0.0.1', 'device_id: device-1',
 ];
 const specs=[
  ['network.address','203.0.113.27', ['203.0.113.27.','peer [2001:db8::7]:443','peer 2001:db8::7.','::ffff:203.0.113.27']],
  ['identity.device','serialNumber: SYNTHETIC12345', ['hardware UUID: SYNTHETIC-12345','UDID="SYNTHETIC-12345"','ether aa:bb:cc:dd:ee:ff','MAC AA-BB-CC-DD-EE-FF','hardware  UUID: SYNTHETIC-12345',{device_id:'SYNTHETIC_DEVICE_123'}]],
- ['identity.environment','hostname: ExampleMac', ['computername=ExampleMac','localHostName: ExampleMac',{hostname:'ExampleMac'},{hostname:'x'}]],
- ['security.credentials','password=SYNTHETIC_PASSWORD', ['Authorization: Bearer SYNTHETIC_TOKEN','const token = "Bearer " + "SYNTHETIC_TOKEN"',{token:'SYNTHETIC_TOKEN'},'-----BEGIN PRIVATE KEY-----']],
+ ['identity.environment','hostname: ExampleMac', ['computername=ExampleMac','localHostName: ExampleMac',{hostname:'ExampleMac'},{hostname:'MacStudio'}]],
+ ['security.credentials','password=sY9!nT4_hE7#tI2-cK8', ['Authorization: Bearer sY9!nT4_hE7#tI2-cK8','const token = "Bearer " + "sY9!nT4_hE7#tI2-cK8"',{token:'sY9!nT4_hE7#tI2-cK8'},'-----BEGIN PRIVATE KEY-----']],
  ['personal.synthetic-value','SYNTHETIC_DEVICE_ID_0001',['prefix SYNTHETIC_DEVICE_ID_0001 suffix']],
  ['personal.synthetic-domain','private.example.invalid',['PRIVATE.EXAMPLE.INVALID.','https://sub.private.example.invalid/a','private.example.invalid:443']],
  ['personal.synthetic-subnet','203.0.113.27',['203.0.113.255','2001:db8::7']],
@@ -65,7 +66,7 @@ test('exact matching case sensitivity and escaped nested JSON',()=>{
 
 test('structured sensitive fields retain their meaning through arrays and numeric values',()=>{
  const e=compile();
- for(const value of [{token:['SYNTHETIC_TOKEN']},{hostname:['ExampleMac']},{device_id:[['SYNTHETIC12345']]}])assert.equal(e.scan(value).blocked,true);
+ for(const value of [{token:['sY9!nT4_hE7#tI2-cK8']},{hostname:['ExampleMac']},{device_id:[['SYNTHETIC12345']]}])assert.equal(e.scan(value).blocked,true);
  for(const value of [{password:123456},{password:null},{secret:false},{token:[]},{token:[null,false]},{token:{description:'documentation'}}])assert.equal(e.scan(value).blocked,false);
 });
 

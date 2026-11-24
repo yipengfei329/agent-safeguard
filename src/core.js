@@ -24,8 +24,19 @@ const identityDetectors={
   'device-identifiers':createAssignmentDetector('(?:serial(?:number| number)?|udid|hardware[ _]*uuid|device[_ -]?id)',6),
   'personal-environment':createAssignmentDetector('(?:hostname|computername|localhostname)',1,'environment')
 };
+const macQuick=/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/i;
+const macPattern=/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/gi;
+const reservedMac=/^(?:00(?::00){5}|ff(?::ff){5}|01:00:5e(?::[0-9a-f]{2}){3}|33:33(?::[0-9a-f]{2}){4}|00:00:5e:00:53:[0-9a-f]{2})$/;
+function hasPersonalMac(text){
+  if(!macQuick.test(text))return false;
+  macPattern.lastIndex=0;
+  for(const m of text.matchAll(macPattern)){
+    if(!reservedMac.test(m[0].toLowerCase().replaceAll('-',':')))return true;
+  }
+  return false;
+}
 function identity(text,key,name,budget,syntax){
-  if(name==='device-identifiers'&&/(?<![\w:-])[a-f0-9]{2}([:-])(?:[a-f0-9]{2}\1){4}[a-f0-9]{2}(?![\w:-])/i.test(text))return 'mac-format';
+  if(name==='device-identifiers'&&hasPersonalMac(text))return 'mac-format';
   return identityDetectors[name](text,key,budget,syntax);
 }
 
@@ -64,7 +75,7 @@ export function compile(config=defaults,options={}){
         // Other rule kinds retain their existing raw-text semantics.
         let decoded,hasDecoded=false;
         if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)) {try{decoded=JSON.parse(s);hasDecoded=true;}catch{}}
-        const normalized=s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'');
+        const normalized=/\\u[0-9a-f]{4}|\x1b\[/i.test(s)?s.replace(/\\u([0-9a-f]{4})/gi,(_,v)=>String.fromCharCode(parseInt(v,16))).replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,''):s;
         let ips,deviceText;const syntax={recordLocation:options.diagnostics===true};
         for(const r of active){
           budget();syntax.match=null;const d=r.detector;let hit=false,reason=null;
@@ -82,6 +93,11 @@ export function compile(config=defaults,options={}){
             if(syntax.match){let line=1,at=-1;while((at=normalized.indexOf('\n',at+1))>=0&&at<syntax.match.offset){budget();line++;}location={textIndex,line,field:syntax.match.field};}
             return {blocked:true,rule:r.id,...(reason?{reason}:{}),...(location?{location}:{})};
           }if(hit)observed.add(r.id);
+        }
+        if(source==='tool.input'&&redactions.length>0&&labels.size()>0&&normalized.includes('[IP_')){
+          for(const m of normalized.matchAll(/\[IP_([1-9]\d*)\]/g)){
+            if(Number(m[1])<=labels.size())return {blocked:true,rule:'network.address',reason:'redaction.placeholder-input'};
+          }
         }
         if(hasDecoded)return visit(decoded,1,decode+1,key);
         return null;

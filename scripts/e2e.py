@@ -9,16 +9,16 @@ for fixture in json.loads((ROOT/'fixtures/replays.json').read_text()):
  if fixture['block'] and fixture['name']!='未知图片':cases.append(('replay-'+fixture['name'],json.dumps(fixture['value'],ensure_ascii=False),True))
 if installed_mode:cases=cases[:4]
 cases += [('guard-user-path','/Users/example/Code/project\n/home/example/src/project',True),('guard-user-path-sensitive','/Users/example/Code/project 203.0.113.17',True)]
-cases += [('guard-email','Author: Example <person@example.invalid>\nCo-authored-by: Example Bot <bot@example.invalid>',True),('guard-email-sensitive','person@example.invalid password=SYNTHETIC_SECRET',True)]
-cases += [('guard-local-network','127.0.0.1 10.23.45.67 172.20.0.5 192.168.50.1 100.64.0.1 198.18.1.7 0.0.0.0 ::1 fd00::1 fe80::1%en0 ::ffff:192.168.50.1',True),('guard-local-network-public','127.0.0.1 192.168.50.1 ::ffff:203.0.113.17',True),('guard-local-network-secret','127.0.0.1 password=SYNTHETIC_SECRET',True)]
-cases += [('guard-type-declaration','public var secret: Bool = false\nlet password: String\nconst token: string;',True),('guard-typed-password','let password: String = "SYNTHETIC_PASSWORD"',True),('guard-declaration-token','public var secret: Bool = false\nconst token: string = "SYNTHETIC_TOKEN"',True),('guard-data-type-word','{"secret":"Bool"}',True)]
+cases += [('guard-email','Author: Example <person@example.invalid>\nCo-authored-by: Example Bot <bot@example.invalid>',True),('guard-email-sensitive','person@example.invalid password=sY9!nT4_hE7#tI2-cK8',True)]
+cases += [('guard-local-network','127.0.0.1 10.23.45.67 172.20.0.5 192.168.50.1 100.64.0.1 198.18.1.7 0.0.0.0 ::1 fd00::1 fe80::1%en0 ::ffff:192.168.50.1',True),('guard-local-network-public','127.0.0.1 192.168.50.1 ::ffff:203.0.113.17',True),('guard-local-network-secret','127.0.0.1 password=sY9!nT4_hE7#tI2-cK8',True)]
+cases += [('guard-type-declaration','public var secret: Bool = false\nlet password: String\nconst token: string;',True),('guard-typed-password','let password: String = "sY9!nT4_hE7#tI2-cK8"',True),('guard-declaration-token','public var secret: Bool = false\nconst token: string = "sY9!nT4_hE7#tI2-cK8"',True),('guard-data-type-word','{"secret":"Bool"}',True)]
 cases += [
  ('guard-grep-command-label', 'src/fake.go:21:case "ask", "ask-secret":\nsrc/fake.go:26:item := Question{Secret: cmd == "ask-secret"}', True),
  ('guard-code-references', 'const token = config.token;\nself.password = os.environ.get("PASSWORD")\nopts := Options{Token: config.Token, Secret: false}', True),
- ('guard-code-adjacent-secret', 'const token = config.token; password=SYNTHETIC_PASSWORD', True),
- ('guard-multiline-secret', 'password:\n  SYNTHETIC_PASSWORD', True),
+ ('guard-code-adjacent-secret', 'const token = config.token; password=sY9!nT4_hE7#tI2-cK8', True),
+ ('guard-multiline-secret', 'password:\n  sY9!nT4_hE7#tI2-cK8', True),
  ('guard-data-code-word', '{"token":"config.token"}', True),
- ('guard-credential-stderr', 'token=SYNTHETIC_TOKEN', True),
+ ('guard-credential-stderr', 'token=sY9!nT4_hE7#tI2-cK8', True),
 ]
 cases += [('guard-image','SYNTHETIC_IMAGE',True),('guard-css','9::root{--live:#5f6b85}\n12:.map::before{color:red}',True),('guard-css-public','9::root{--live:#5f6b85}\n2001:db8::7',True)]
 cases += [
@@ -28,7 +28,7 @@ cases += [
  ('guard-punctuation-ipv6','peer 2001:db8::7.',True),
  ('guard-device-value','serialNumber: SYNTHETIC12345',True),
  ('guard-host-value','hostname: ExampleMac',True),
- ('guard-array-token','{"token":["SYNTHETIC_TOKEN"]}',True),
+ ('guard-array-token','{"token":["sY9!nT4_hE7#tI2-cK8"]}',True),
  ('guard-number-password','{"password":123456}',True),
 ]
 # Public database probes, never contacted; no user IPs. Historical replay
@@ -38,7 +38,7 @@ cases += [('guard-geo-other','8.8.8.8',True),('guard-geo-unknown','203.0.113.17 
 cases += [('guard-rust-types','pub api_key: String,\npub(crate) token: Option<std::sync::Arc<SecretString>>,',True),('guard-test-token','App/Push.swift:23: if token == nil, arguments.contains("-SyntheticTestApprove") { token = "simulator" }',True),('guard-rust-secret','pub api_key: String,\nlet token: Option<String> = Some("rQ7!mL2_zA9#vC4-pF8@tN6".into());',True)]
 simulator={'deviceId':'11111111-2222-4333-8444-555555555555','platform':'iOS Simulator','deviceName':'Synthetic E2E'}
 simlog='UI tests failed:\n'+'\n'.join(f'{i+3}-{line}' for i,line in enumerate(json.dumps({'devices':[simulator]},indent=2).splitlines()))
-cases += [('guard-simulator-json',json.dumps({'devices':[simulator]}),True),('guard-simulator-grep',simlog,True),('guard-simulator-real',json.dumps({**simulator,'platform':'iOS'}),True),('guard-simulator-mixed',json.dumps({'devices':[simulator,{'deviceId':simulator['deviceId']}]}),True),('guard-simulator-secret',simlog+'\npassword=SYNTHETIC_PASSWORD',True),('guard-simulator-serial',json.dumps({**simulator,'serialNumber':'SYNTHETIC12345'}),True)]
+cases += [('guard-simulator-json',json.dumps({'devices':[simulator]}),True),('guard-simulator-grep',simlog,True),('guard-simulator-real',json.dumps({**simulator,'platform':'iOS'}),True),('guard-simulator-mixed',json.dumps({'devices':[simulator,{'deviceId':simulator['deviceId']}]}),True),('guard-simulator-secret',simlog+'\npassword=sY9!nT4_hE7#tI2-cK8',True),('guard-simulator-serial',json.dumps({**simulator,'serialNumber':'SYNTHETIC12345'}),True)]
 cases += [('guard-swift-expression','let r = try await call("synthetic/set", ["api_key": .string(key)])',True),('guard-unknown-expression','["api_key": .unknown_Ab7_Kd3_Xp9[factory](reference)!]',True),('guard-swift-literal','["api_key": .string("rQ7!mL2_zA9#vC4-pF8@tN6")]',True)]
 precision_code='interface Options { token: "custom-type-discriminant"; }\nconst password = "Please enter your password";\nconst secret = "AWS_SECRET_ACCESS_KEY";'
 cases += [
@@ -50,7 +50,7 @@ cases += [
  ('guard-precision-initializer','let token: "custom-type-discriminant" = "rQ7!mL2_zA9#vC4-pF8@tN6";',True),
  ('guard-precision-regex','function render() { const pattern = /interface Options {/; const x = { token: "rQ7!mL2_zA9#vC4-pF8@tN6" }; }',True),
 ]
-boundary_clean={'guard-symbol-name','guard-symbol-name-error','guard-symbol-reference','guard-dense-code','guard-dense-error','guard-short-prefixed','guard-numbered-label','guard-numbered-error','guard-boundary-empty','guard-boundary-metadata','guard-boundary-reference','guard-shape-reference','guard-shape-reference-error','guard-shared-calls','guard-shared-error','guard-shared-reference','guard-shared-ui'}
+boundary_clean={'guard-symbol-uppercase','guard-symbol-name','guard-symbol-name-error','guard-symbol-reference','guard-dense-code','guard-dense-error','guard-short-prefixed','guard-numbered-label','guard-numbered-error','guard-boundary-empty','guard-boundary-metadata','guard-boundary-reference','guard-shape-reference','guard-shape-reference-error','guard-shared-calls','guard-shared-error','guard-shared-reference','guard-shared-ui'}
 cases += [
  ('guard-boundary-empty','PASSWORD= HOST=demo-service',True),
  ('guard-boundary-metadata','token_count=1234567890\naccess_token_expires_at="2026-11-15T12:34:56Z"',True),
@@ -67,7 +67,7 @@ cases += [
  ('guard-short-prefixed','const TOKEN: &str = "harbour-4n8r2w6s9z";',True),
  ('guard-numbered-label','const TOKEN: &str = "lanterns-24680";',True),
  ('guard-numbered-error','api_key=meadows_907314',True),
- ('guard-numbered-password','password=lanterns-24680',True),
+ ('guard-numbered-password','password=Lanterns24680',True),
  ('guard-numbered-adjacent','token=lanterns-24680\napi_key=pM8!sQ3_vL7#rD5-tN2@xK9',True),
  ('guard-shared-calls','    device_id = identity_service.resolve_identity(\n        payload.device_id,\n    )\n    hostname = names.resolve_host(request)',True),
  ('guard-shared-error','device_id = identity_service.resolve_identity(',True),

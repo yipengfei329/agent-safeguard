@@ -2,7 +2,7 @@ import {test,expect} from 'claude-code/testing';
 const uuid='11111111-2222-4333-8444-555555555555';
 const record={deviceId:uuid,platform:'iOS Simulator',deviceName:'Synthetic E2E'};
 const grep=JSON.stringify({devices:[record]},null,2).split('\n').map((v,i)=>`${i+1}-${v}`).join('\n');
-const cases=[['structured',record,false],['grep',grep,false],['real',{...record,platform:'iOS'},true],['mixed',{devices:[record,{deviceId:uuid}]},true],['serial',{...record,serialNumber:'SYNTHETIC12345'},true],['credential',{...record,token:'SYNTHETIC_TOKEN'},true]];
+const cases=[['structured',record,false],['grep',grep,false],['real',{...record,platform:'iOS'},true],['mixed',{devices:[record,{deviceId:uuid}]},true],['serial',{...record,serialNumber:'SYNTHETIC12345'},true],['credential',{...record,token:'sY9!nT4_hE7#tI2-cK8'},true]];
 for(const [name,value,blocked] of cases)test(`simulator adapter ${name}`,async($,on)=>{
  on('fs.exists',()=>({value:false}));on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/synthetic'}));
  on('tool.call',()=>({result:{output:value}}));let calls=0;

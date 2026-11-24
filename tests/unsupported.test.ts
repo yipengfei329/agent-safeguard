@@ -11,7 +11,7 @@ test('image result passes and later prompts and model steps stay available',asyn
  expect(JSON.parse((await $.command.run({command:'agent-safeguard-status',args:''})).text).blocked).toBe(false);
 });
 test('image with sensitive text is still withheld',async($,on)=>{
- setup(on);on('tool.call',()=>({result:{content:[image,{type:'text',text:'password=SYNTHETIC_PASSWORD'}]}}));
+ setup(on);on('tool.call',()=>({result:{content:[image,{type:'text',text:'password=sY9!nT4_hE7#tI2-cK8'}]}}));
  await $.session.start({cwd:'/work',surface:null,isInteractive:false});
  expect((await $.tool.call({tool:'Read',file_path:'/work/fixture.png'})).deny).toBe('SAFEGUARD_BLOCKED');
 });

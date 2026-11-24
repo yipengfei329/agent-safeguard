@@ -29,6 +29,6 @@ for(const expression of [`.string("${secret}")`,`.some(.string("${secret}"))`,`J
  for(const source of ['tool.input','tool.result','user.prompt','prompt.context'])assert.equal(e.scan(`["api_key": ${expression}]`,source).rule,'security.credentials');
 });
 test('structured values, environment atoms and provider formats retain evidence paths',()=>{
- for(const input of [{api_key:secret},'API_KEY='+secret,'password=SYNTHETIC_PASSWORD','Authorization: Bearer '+secret,'ghp_'+'A'.repeat(36),'-----BEGIN PRIVATE KEY-----'])assert.equal(e.scan(input).rule,'security.credentials');
+ for(const input of [{api_key:secret},'API_KEY='+secret,'password='+secret,'Authorization: Bearer '+secret,'ghp_'+'A'.repeat(36),'-----BEGIN PRIVATE KEY-----'])assert.equal(e.scan(input).rule,'security.credentials');
  assert.equal(e.scan('["api_key": .string(key)], "password": "'+secret+'"').rule,'security.credentials');
 });

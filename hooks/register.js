@@ -68,7 +68,7 @@ export function register(on){
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
   let barrierCause=null,lastDetection=null,relatedRefusals=0;
   const diagnostic=()=>({cause:barrierCause||lastDetection,relatedRefusals,nextAction:nextAction({ready,blocked:locked(),modern:modern(),ended:lifecycle.ended,barrier:recovery.barrier(),recovery:recovery.snapshot(),admission:recovery.admission()}),admission:recovery.admission()});
-  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.2.8',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
+  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.3.0',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
   function capture(rule,event,tool,agentId){
     lastDetection=diagnosticCause(rule,lastReason,event,tool,lastLocation);
     if(interception&&!modern())return;
@@ -79,7 +79,7 @@ export function register(on){
   }
   function pause(owner,reason,hard){const paused=recovery.pause(owner,reason,hard);if(paused)barrierCause??=lastDetection;return paused;}
   function pauseCurrent(reason,hard){recovery.pauseCurrent(reason,hard);barrierCause??=lastDetection;}
-  function inspect(value,source,tool,agentId){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastLocation=r.location||null;lastEvent=source;capture(r.rule,source,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
+  function inspect(value,source,tool,agentId,event=source){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastLocation=r.location||null;lastEvent=event;capture(r.rule,event,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
   function fail(rule,event){blocked=true;lastRule=rule;lastReason=null;lastLocation=null;lastEvent=event;capture(rule,event);pauseCurrent(rule,true);notify();}
   // Existing host events supply identity; no transcript scan or title generation.
   on('classic.SessionStart',($,e,next)=>{Object.assign(lifecycle.identity,{hostSessionId:label(e.session_id,80),project:label(e.cwd,512),title:label(e.session_title),agentType:label(e.agent_type,80),model:label(e.model,80)});notify();return next(e);});
@@ -102,7 +102,7 @@ export function register(on){
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Fixed diagnostic vocabulary is safe to display; never expose custom IDs.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.2.8',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.3.0',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};
@@ -174,13 +174,38 @@ export function register(on){
   }).catch(()=>{fail(ready?'prompt.hook.failed':'initialization.failed','prompt.submit');return {drop:'SAFEGUARD_BLOCKED ['+lastRule+']; run /agent-safeguard-status'};});
   on('prompt.section',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;pauseCurrent('context.blocked',true);notify();return {text:null};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.section');return {text:null};});
   on('prompt.context',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;pauseCurrent('context.blocked',true);notify();return {blocks:[]};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.context');return {blocks:[]};});
-  on('prompt.attachment',async ($,e,next)=>{engine=await(initializing??=loadEngine($));ready=true;notify();const r=await next(e);if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context').blocked){blocked=true;pauseCurrent('context.blocked',true);notify();return {text:null};}return r;}).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.attachment');return {text:null};});
+  on('prompt.attachment',async ($,e,next)=>{
+    engine=await(initializing??=loadEngine($));ready=true;notify();
+    const r=await next(e);
+    if(engine.hasSource('prompt.context')&&inspect(r,'prompt.context',undefined,undefined,'prompt.attachment').blocked){blocked=true;pauseCurrent('context.blocked',true);notify();return {text:null};}
+    // After compaction the host can reread a file without dispatching tool.call.
+    if(e.type==='file'&&e.origin.kind==='engine'){
+      const checked=inspect(r,'tool.result','Read',undefined,'prompt.attachment');
+      if(checked.blocked){
+        if(checked.rule==='inspection.failed'){blocked=true;pauseCurrent(checked.reason||checked.rule,true);}
+        notify();return {text:null};
+      }
+    }
+    return r;
+  }).catch(()=>{fail(ready?'context.hook.failed':'initialization.failed','prompt.attachment');return {text:null};});
   on('agent.spawn',async ($,e,next)=>{
     if(locked()||!ready)return deny('spawn',locked());
     const owner=modern()?recovery.begin({agentId:e.parentAgentId}):null;if(modern()&&!owner)return deny('spawn',false,true);
     try{const result=await next(e);return locked()||modern()&&!recovery.valid(owner)?deny('spawn-result',locked(),!locked()):result;}
     finally{recovery.finish(owner);notify();}
   }).catch(()=>{fail('tool.hook.failed','agent.spawn');return deny();});
-  on('session.compact',async ($,e,next)=>locked()||!ready?{skip:'SAFEGUARD_BLOCKED'}:next(e)).catch(()=>{fail('context.hook.failed','session.compact');return {skip:'SAFEGUARD_BLOCKED'};});
+  on('session.compact',async ($,e,next)=>{
+    const unavailable={skip:'SAFEGUARD_BLOCKED'};
+    if(locked()||!ready)return unavailable;
+    const owner=modern()?recovery.begin({}):null;
+    if(modern()&&!owner)return unavailable;
+    let result;
+    try{result=await next(e);}
+    // A host compaction failure leaves the transcript in place. It does not
+    // establish a new protection fault or carry downstream exception text out.
+    catch{result={skip:'SAFEGUARD_COMPACT_FAILED'};}
+    finally{if(owner)recovery.finish(owner);notify();}
+    return !ready||locked()||owner&&!recovery.valid(owner)?unavailable:result;
+  }).catch(()=>{fail('context.hook.failed','session.compact');return {skip:'SAFEGUARD_BLOCKED'};});
   on('session.end',async ($,e,next)=>{if(locked())finalDecision={rule:barrierCause?.rule||lastRule,event:barrierCause?.event||lastEvent};blocked=true;recovery.end();notify();ready=false;lastRule='session.ended';lastReason=null;lastEvent='session.end';lifecycle.ended=true;lifecycle.finish?.();return next(e);});
 }

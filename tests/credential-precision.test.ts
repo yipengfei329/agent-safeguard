@@ -8,7 +8,7 @@ for(const [name,output,blocked,isError] of [
  ['numbered-label','const TOKEN: &str = "lanterns-24680";',false,false],
  ['numbered-error','api_key=meadows_907314',false,true],
  ['numbered-adjacent','token=lanterns-24680\napi_key='+secret,true,false],
- ['numbered-password','password=lanterns-24680',true,false],
+ ['numbered-password','password=Lanterns24680',true,false],
  ['code',source,false,false],
  ['error-code',source,false,true],
  ['adjacent',source+'\napi_key='+secret,true,false],

@@ -1,14 +1,24 @@
 # Agent Safeguard
 
+<img align="right" src="docs/assets/agent-safeguard.svg" width="96" height="96" alt="">
+
 Local sensitive information protection for coding agents. Currently supports Claude Code.
 
 [MIT License](LICENSE) · [GitHub](https://github.com/yipengfei329/agent-safeguard)
 
-面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.2.8，已在本机 Claude Code 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理，检测和规则加载均在本地完成。
+面向编程智能体的本地敏感信息防护项目，目前已实现 Claude Code 适配。版本 0.3.0，已在本机 Claude Code 2.1.325 验证工具结果拦截。命中时扣留结果并停止下一次推理，检测和规则加载均在本地完成。
 
 **实验性开源版本，已验证 Claude Code 工具结果配置的用户级自动加载。** 严格上下文配置仍有阻断普通任务的兼容性问题；工具结果配置可正常运行，但不检查自动上下文。详见 [验收报告](docs/acceptance.md)。
 
 项目目录、npm 包、启动脚本和 Claude 插件统一命名为 `agent-safeguard`。命令行入口为 `bin/agent-safeguard.mjs`，状态命令为 `/agent-safeguard-status`。
+
+## 第一性误报收敛与本机身份精确同步（0.3.0）
+
+重构凭据与身份值判据并移除历史特例分支：扩充 16 类高确定性服务商 Token 格式；将标识符分隔符 `[-_./]` 从秘密复杂度中剥离，自然放行 `UPPER_SNAKE_CASE`、`Pascal_Snake`、短前缀 `kebab-case`、12–16 位短十六进制指纹及 UI 密码校验提示语，保留随机密钥、32 位以上十六进制密钥、密码符号混合值及短语口令检测。`identity.*` 排除 `localhost`、RFC 2606 保留域名、服务角色占位词及保留/多播 MAC，并将 `hostname` 中的 IP 字面量交还地址规则裁决；新增 `npm run rules -- sync-local` 离线生成本机精确指纹草稿。新安装默认启用 Schema 2 恢复与同步 Bash IP 脱敏，新增已分配 `[IP_n]` 代号的 `tool.input` 防回写门禁与标准运行时日志脱敏支持。
+
+## 压缩失败后的重试与文件回填检查（0.2.9）
+
+Claude Code 的压缩请求失败时返回 `SAFEGUARD_COMPACT_FAILED`，防护允许时可在原会话重试。宿主回填的文件按 `Read` 结果规则检查，命中的文件附件会被省略。 [验证记录](docs/recovery-redaction-acceptance.md)
 
 ## Go 测试日志 IP 脱敏（0.2.8）
 

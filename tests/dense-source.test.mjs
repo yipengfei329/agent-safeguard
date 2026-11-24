@@ -13,7 +13,7 @@ test('repeated candidate checks cannot exempt a changed initializer or trailing 
 test('candidate cache cannot conflate role, multiline context, concatenation or raw strings',()=>{
  const e=compile();
  for(const code of [
-  'token="lanterns-24680";\npassword="lanterns-24680";',
+  'token="Lanterns24680";\npassword="Lanterns24680";',
   'token="<binding:" + """\nslot>""";\ntoken="<binding:" + """\n'+secret+'>""";',
   'token="slot";\ntoken="slot" + "'+secret+'";',
   'token=r#"slot"#;\ntoken=r#"'+secret+'"#;',

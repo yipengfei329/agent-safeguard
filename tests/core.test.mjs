@@ -13,9 +13,10 @@ test('长无分隔符文本不误报',()=>assert(!compile().scan('x'.repeat(1048
 test('observe只记录规则编号而不阻断',()=>{let c=structuredClone(defaults);c.rules=[{...c.rules[0],action:'observe'}];const r=compile(c).scan('203.0.113.7');assert.equal(r.blocked,false);assert.deepEqual(r.observed,['network.address']);});
 test('编译快照不受原配置后续修改影响',()=>{const c=structuredClone(defaults),e=compile(c);c.rules[4].detector.values[0]='DIFFERENT_VALUE';assert(e.scan('SYNTHETIC_DEVICE_ID_0001').blocked);});
 
-test('用户路径各入口放行，混合敏感值继续命中',()=>{const e=compile();for(const source of ['user.prompt','tool.result','prompt.context']){assert.equal(e.scan('/Users/example/Code/project',source).blocked,false);assert.equal(e.scan('/home/example/src/project',source).blocked,false);for(const suffix of ['203.0.113.7','password=SYNTHETIC_SECRET','serialNumber: SYNTHETIC12345','hostname: ExampleMac'])assert.equal(e.scan('/Users/example/Code/project '+suffix,source).blocked,true,suffix);}});
+const syntheticSecret='sY9!nT4_hE7#tI2-cK8';
+test('用户路径各入口放行，混合敏感值继续命中',()=>{const e=compile();for(const source of ['user.prompt','tool.result','prompt.context']){assert.equal(e.scan('/Users/example/Code/project',source).blocked,false);assert.equal(e.scan('/home/example/src/project',source).blocked,false);for(const suffix of ['203.0.113.7','password='+syntheticSecret,'serialNumber: SYNTHETIC12345','hostname: ExampleMac'])assert.equal(e.scan('/Users/example/Code/project '+suffix,source).blocked,true,suffix);}});
 
-test('邮箱在各入口放行，同一内容中的其他风险仍被检测',()=>{const e=compile();for(const source of ['user.prompt','tool.result','prompt.context']){for(const value of ['Author: Example <person@example.invalid>','Co-authored-by: Example Bot <bot@example.invalid>',{email:'person@example.invalid'}])assert.equal(e.scan(value,source).blocked,false);for(const suffix of ['203.0.113.7','password=SYNTHETIC_SECRET','serialNumber: SYNTHETIC12345','hostname: ExampleMac'])assert.equal(e.scan('person@example.invalid '+suffix,source).blocked,true,suffix);}});
+test('邮箱在各入口放行，同一内容中的其他风险仍被检测',()=>{const e=compile();for(const source of ['user.prompt','tool.result','prompt.context']){for(const value of ['Author: Example <person@example.invalid>','Co-authored-by: Example Bot <bot@example.invalid>',{email:'person@example.invalid'}])assert.equal(e.scan(value,source).blocked,false);for(const suffix of ['203.0.113.7','password='+syntheticSecret,'serialNumber: SYNTHETIC12345','hostname: ExampleMac'])assert.equal(e.scan('person@example.invalid '+suffix,source).blocked,true,suffix);}});
 
 test('本机、内网、共享和Fake IP各入口放行，覆盖边界及IPv4映射',()=>{
  const e=compile();const allowed=['0.0.0.0','10.0.0.0','10.255.255.255','100.64.0.0','100.127.255.255','127.0.0.1','127.255.255.255','169.254.0.0','169.254.255.255','172.16.0.0','172.31.255.255','192.168.0.0','192.168.255.255','198.18.0.0','198.19.255.255','255.255.255.255','::','::1','fc00::1','fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff','fe80::1%en0','febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff','::ffff:127.0.0.1','::ffff:192.168.50.1','::ffff:c0a8:3201','fd00:aa:bb:cc:dd:ee:ff:1'];
@@ -26,7 +27,7 @@ test('内网边界外的地址不被扩大放行',()=>{
  const e=compile();for(const ip of ['9.255.255.255','11.0.0.0','100.63.255.255','100.128.0.0','126.255.255.255','128.0.0.0','169.253.255.255','169.255.0.0','172.15.255.255','172.32.0.0','192.167.255.255','192.169.0.0','198.17.255.255','198.20.0.0','fbff::1','fe00::1','fe7f::1','fec0::1','2001:db8::7','::ffff:203.0.113.7','::ffff:cb00:7107'])assert.equal(e.scan(ip).rule,'network.address',ip);
 });
 test('本地地址不豁免其他地址或凭据设备规则',()=>{
- const e=compile();for(const sensitive of ['203.0.113.7','2001:db8::7','::ffff:203.0.113.7','password=SYNTHETIC_SECRET','serialNumber: SYNTHETIC12345','ether aa:bb:cc:dd:ee:ff','hostname: ExampleMac']){
+ const e=compile();for(const sensitive of ['203.0.113.7','2001:db8::7','::ffff:203.0.113.7','password='+syntheticSecret,'serialNumber: SYNTHETIC12345','ether aa:bb:cc:dd:ee:ff','hostname: ExampleMac']){
   for(const text of ['127.0.0.1 192.168.50.1 '+sensitive,sensitive+' fd00::1'])assert(e.scan(text).blocked,sensitive);
  }
 });
@@ -41,13 +42,13 @@ test('网段豁免配置可撤回，且不影响其他精确规则',()=>{
 });
 
 test('显式类型声明不当作凭据，真实初始化值仍阻断',()=>{
- const e=compile();const clean=['public var secret: Bool = false','public var secret: Bool = true','let password: String','private let apiKey: String? = nil','const token: string;','let authorization: string | null = null','public var secret: Foundation.Data = Data()'];
+ const e=compile();const clean=['public var secret: Bool = false','public var secret: Bool = true','let password: String','private let apiKey: String? = nil','const token: string;','let authorization: string | null = null','public var secret: Foundation.Data = Data()','const token = "UPPER_SNAKE_LABEL"'];
  for(const source of ['user.prompt','tool.input','tool.result','prompt.context'])for(const s of clean)assert.equal(e.scan(s,source).blocked,false,s);
- for(const s of ['let password: String = "SYNTHETIC_PASSWORD"','const token: string = "SYNTHETIC_TOKEN"','public var secret: Bool = false; password=SYNTHETIC_PASSWORD','public var secret: Bool = false\nAuthorization: Bearer SYNTHETIC_TOKEN',JSON.stringify({token:'SYNTHETIC_TOKEN'})])assert.equal(e.scan(s).rule,'security.credentials',JSON.stringify(s));
+ for(const s of ['let password: String = "'+syntheticSecret+'"','const token: string = "'+syntheticSecret+'"','public var secret: Bool = false; password='+syntheticSecret,'public var secret: Bool = false\nAuthorization: Bearer '+syntheticSecret,JSON.stringify({token:syntheticSecret})])assert.equal(e.scan(s).rule,'security.credentials',JSON.stringify(s));
 });
 
 test('类型声明只豁免自身且保留其他字段和其他规则',()=>{
- const e=compile();for(const text of ['const access_token: string = "SYNTHETIC_TOKEN"','const refreshToken: string = "SYNTHETIC_TOKEN"','let secret: Data = Data(base64Encoded: "SYNTHETIC_SECRET")','public var secret: Bool = false // api_key=SYNTHETIC_KEY','public var secret: Bool = false\n{"token":"SYNTHETIC_TOKEN"}','public var secret: Bool = false\n-----BEGIN PRIVATE KEY-----','public var secret: Bool = false\nsocks5://example:SYNTHETIC_SECRET@proxy.example.invalid'])assert.equal(e.scan(text).rule,'security.credentials',text);
+ const e=compile();for(const text of ['const access_token: string = "'+syntheticSecret+'"','const refreshToken: string = "'+syntheticSecret+'"','let secret: Data = Data(base64Encoded: "U1lOVEhFVElDX1NFQ1JFVA==")','public var secret: Bool = false // api_key='+syntheticSecret,'public var secret: Bool = false\n{"token":"'+syntheticSecret+'"}','public var secret: Bool = false\n-----BEGIN PRIVATE KEY-----','public var secret: Bool = false\nsocks5://example:SYNTHETIC_SECRET@proxy.example.invalid'])assert.equal(e.scan(text).rule,'security.credentials',text);
  for(const value of [{token:'Bool'},{secret:'String'},{secret:'Foundation.Data'},JSON.stringify({secret:'Bool'})])assert.equal(e.scan(value).blocked,false);
  assert.equal(e.scan('public var secret: Bool = false\n203.0.113.7').rule,'network.address');
 });
@@ -59,7 +60,7 @@ test('CSS grep line prefixes are not truncated IPv6 addresses',()=>{
   const output='9:'+selector+'{--live:#5f6b85;color:red}';
   assert.equal(e.scan(output).blocked,false,selector);
   assert.equal(e.scan(output+'\n2001:db8::7').rule,'network.address');
-  assert.equal(e.scan(output+'\npassword=SYNTHETIC_PASSWORD').rule,'security.credentials');
+  assert.equal(e.scan(output+'\npassword='+syntheticSecret).rule,'security.credentials');
  }
  for(const address of ['2001:db8::7','[2001:db8::7]:443','9::','[9::]','::ffff:203.0.113.7','2001:db8::7%en0'])assert.equal(e.scan(address).rule,'network.address',address);
 });

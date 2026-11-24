@@ -90,7 +90,7 @@
     },
     {
       "id": "identity.environment",
-      "enabled": true,
+      "enabled": false,
       "sources": [
         "tool.result",
         "user.prompt"
@@ -105,7 +105,6 @@
       "id": "security.credentials",
       "enabled": true,
       "sources": [
-        "tool.input",
         "tool.result",
         "user.prompt"
       ],

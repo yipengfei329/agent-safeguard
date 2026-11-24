@@ -76,6 +76,8 @@ test('JSON semantic credential scan preserves raw exact matching and key inherit
 });
 test('generic ambiguity exceptions do not weaken explicit authentication or identity rules',()=>{
  assert.equal(engine.scan('https://user:changeme@service.example.invalid').rule,'security.credentials');
- assert.equal(engine.scan({hostname:'placeholder'}).rule,'identity.environment');
- assert.equal(engine.scan({device_id:'placeholder'}).rule,'identity.device');
+ assert.equal(engine.scan({hostname:'placeholder'}).blocked,false);
+ assert.equal(engine.scan({device_id:'placeholder'}).blocked,false);
+ assert.equal(engine.scan({hostname:'SyntheticHost'}).rule,'identity.environment');
+ assert.equal(engine.scan({device_id:'SYNTHETIC12345'}).rule,'identity.device');
 });

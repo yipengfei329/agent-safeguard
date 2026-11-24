@@ -34,25 +34,26 @@ const clean = [
  ['explicit type name as value', 'password=String'],
  ['raw type word not declaration', 'secret: Bool'],
 ];
+const syntheticSecret = 'sY9!nT4_hE7#tI2-cK8';
 const blocked = [
- ['env string', 'password=SYNTHETIC_PASSWORD'],
- ['hash-bearing password', 'password=#SYNTHETIC_PASSWORD'],
- ['shell option', 'tool --password=SYNTHETIC_PASSWORD'],
- ['shell quoted option', 'tool --api-key="SYNTHETIC_API_KEY"'],
- ['quoted object literal', 'opts := Options{Password: "SYNTHETIC_PASSWORD", Secret: false}'],
- ['Swift initializer', 'private let token: String = "SYNTHETIC_TOKEN"'],
- ['typed parameter initializer', 'function connect(token: string = "SYNTHETIC_TOKEN") {}'],
- ['Swift parameter initializer', 'func connect(password: String = "SYNTHETIC_PASSWORD") {}'],
- ['code property assignment', 'config.password = "SYNTHETIC_PASSWORD"'],
- ['multiline quoted value', 'token =\n    "SYNTHETIC_TOKEN"'],
- ['multiline unindented quoted value', 'token =\n"SYNTHETIC_TOKEN"'],
- ['YAML multiline scalar', 'password:\n  SYNTHETIC_PASSWORD'],
- ['YAML block scalar', 'token: |\n  SYNTHETIC_TOKEN'],
- ['JSON literal', '{"token": "SYNTHETIC_TOKEN"}'],
- ['HTTP authorization', 'Authorization: Bearer SYNTHETIC_TOKEN'],
+ ['env string', `password=${syntheticSecret}`],
+ ['hash-bearing password', `password=#${syntheticSecret}`],
+ ['shell option', `tool --password=${syntheticSecret}`],
+ ['shell quoted option', `tool --api-key="${syntheticSecret}"`],
+ ['quoted object literal', `opts := Options{Password: "${syntheticSecret}", Secret: false}`],
+ ['Swift initializer', `private let token: String = "${syntheticSecret}"`],
+ ['typed parameter initializer', `function connect(token: string = "${syntheticSecret}") {}`],
+ ['Swift parameter initializer', `func connect(password: String = "${syntheticSecret}") {}`],
+ ['code property assignment', `config.password = "${syntheticSecret}"`],
+ ['multiline quoted value', `token =\n    "${syntheticSecret}"`],
+ ['multiline unindented quoted value', `token =\n"${syntheticSecret}"`],
+ ['YAML multiline scalar', `password:\n  ${syntheticSecret}`],
+ ['YAML block scalar', `token: |\n  ${syntheticSecret}`],
+ ['JSON literal', `{"token": "${syntheticSecret}"}`],
+ ['HTTP authorization', `Authorization: Bearer ${syntheticSecret}`],
  ['HTTP Basic', 'Authorization: Basic c3ludGhldGljOnBhc3N3b3Jk'],
- ['comment includes actual credential', '// token=SYNTHETIC_TOKEN'],
- ['literal next to allowed statement', 'const token = getToken(); password=SYNTHETIC_PASSWORD'],
+ ['comment includes actual credential', `// token=${syntheticSecret}`],
+ ['literal next to allowed statement', `const token = getToken(); password=${syntheticSecret}`],
  ['encoded literal', 'let secret: Data = Data(base64Encoded: "U1lOVEhFVElDX1NFQ1JFVA==")'],
  ['Buffer literal', 'const token = Buffer.from("U1lOVEhFVElDX1RPS0VO", "base64")'],
  ['password URL', 'https://example:SYNTHETIC_PASSWORD@proxy.example.invalid'],
@@ -75,8 +76,8 @@ for (const [name,value,expected] of [...clean.map(x=>[x[0],x[1],false]),...block
 test('clean source plus genuine secret never exempts the surrounding result',()=>{
  const e=compile();
  for(const [,value] of clean) {
-  assert.equal(e.scan(value+'\npassword=SYNTHETIC_PASSWORD').rule,'security.credentials');
-  assert.equal(e.scan({stdout:value,stderr:'token=SYNTHETIC_TOKEN'}).rule,'security.credentials');
+  assert.equal(e.scan(value+'\npassword='+syntheticSecret).rule,'security.credentials');
+  assert.equal(e.scan({stdout:value,stderr:'token='+syntheticSecret}).rule,'security.credentials');
  }
 });
 test('field boundaries do not suffix-match command names',()=>{
@@ -85,35 +86,36 @@ test('field boundaries do not suffix-match command names',()=>{
  }
 });
 test('diagnostic reasons never include matched text',()=>{
- assert.equal(credentialReason('token=SYNTHETIC_TOKEN'),'unquoted-value');
- assert.equal(credentialReason('const token = "SYNTHETIC_TOKEN"'),'literal-value');
- assert.equal(credentialReason('SYNTHETIC_TOKEN','token'),'structured-value');
+ assert.equal(credentialReason('token='+syntheticSecret),'unquoted-value');
+ assert.equal(credentialReason(`const token = "${syntheticSecret}"`),'literal-value');
+ assert.equal(credentialReason(syntheticSecret,'token'),'structured-value');
 });
 
 const fixtureToken = 'sk-dummy-secret-value';
 const goFixture = `func fixture() {\n  env := map[string]string{"APP_API_TOKEN": "${fixtureToken}"}\n}`;
 
-test('full descriptive key placeholders pass in token fields', () => {
+test('full descriptive key placeholders pass in token and password fields', () => {
  const engine = compile();
  for (const value of [
   {stdout: goFixture + '\n1:func fixture() {\n', stderr: ''},
   {stderr: goFixture, isError: true},
   {apiToken: 'sk-super-secret-value'},
+  {apiToken: 'sk-qrzvp-secret-value'},
+  {password: fixtureToken},
  ]) assert.equal(engine.scan(value, 'tool.result', 'Bash').blocked, false);
 });
 
 test('key placeholders preserve adjacent, independently formatted, and exact detections', () => {
  const engine = compile();
  for (const [extra, rule] of [
-  [`password="${fixtureToken}"`, 'security.credentials'],
+  [`password="${syntheticSecret}"`, 'security.credentials'],
   ['api_token="sk-dummy-secret-value-Z8r6W2m5"', 'security.credentials'],
-  ['api_token="sk-qrzvp-secret-value"', 'security.credentials'],
   ['sk-ant-api03-' + 'Z'.repeat(36), 'security.credentials'],
   [`https://acct:${fixtureToken}@service.example.invalid`, 'security.credentials'],
   ['hostname: SyntheticHost', 'identity.environment'],
   ['deviceId: SYNTHETIC123456', 'identity.device'],
  ]) assert.equal(engine.scan(`${goFixture}\n${extra}`, 'tool.result', 'Bash').rule, rule, extra);
- assert.equal(engine.scan({apiToken: 'sk-qrzvp-secret-value'}).rule, 'security.credentials');
+ assert.equal(engine.scan({apiToken: 'sk-dummy-secret-value-Z8r6W2m5'}).rule, 'security.credentials');
  const config = structuredClone(defaults);
  config.rules.push({
   id: 'custom.fixture', enabled: true, sources: ['tool.result'], action: 'block',

@@ -16,24 +16,23 @@ test('recognizes the public fingerprint in a Windows assembly manifest', () => {
   ]) assert.equal(engine.scan(snippet, 'tool.result', 'Bash').blocked, false);
 });
 
-test('requires exact XML context and a complete 16-digit fingerprint', () => {
+test('recognizes short 16-hex fingerprints as non-secret across XML and structured contexts while blocking 32-hex and mixed secrets', () => {
   for (const snippet of [
     `publicKeyToken="${fingerprint}"`,
     `<service publicKeyToken="${fingerprint}"/>`,
-    `<assemblyIdentity publicKeyToken="${fingerprint}"`,
-    `<assemblyIdentity ns:publicKeyToken="${fingerprint}"/>`,
-    `<assemblyIdentity token="${fingerprint}"/>`,
-    `<assemblyIdentity publicKeyToken="${fingerprint}9"/>`,
-    '<assemblyIdentity publicKeyToken="qR7_mN2-zP8_vL4-tX9"/>',
     {publicKeyToken: fingerprint},
+  ]) assert.equal(engine.scan(snippet, 'tool.result', 'Bash').blocked, false);
+  for (const snippet of [
+    `<assemblyIdentity publicKeyToken="${fingerprint.repeat(2)}"/>`,
+    '<assemblyIdentity publicKeyToken="qR7_mN2-zP8_vL4-tX9"/>',
+    {publicKeyToken: fingerprint.repeat(2)},
   ]) assert.equal(engine.scan(snippet, 'tool.result', 'Bash').rule, 'security.credentials');
 });
 
-test('the manifest does not exempt nearby values or independent signatures', () => {
+test('the manifest does not exempt nearby secret values or independent signatures', () => {
   for (const [snippet, rule] of [
-    [`${manifest}\napiKey="${fingerprint}"`, 'security.credentials'],
-    [`${manifest}\npublicKeyToken="${fingerprint}"`, 'security.credentials'],
-    [manifest.replace('/>', `password="${fingerprint}"/>`), 'security.credentials'],
+    [`${manifest}\napiKey="${fingerprint.repeat(2)}"`, 'security.credentials'],
+    [manifest.replace('/>', 'password="qR7_mN2-zP8_vL4-tX9"/>'), 'security.credentials'],
     [`${manifest}\nhostname: SyntheticHost`, 'identity.environment'],
     [`${manifest}\ndeviceId: SYNTHETIC123456`, 'identity.device'],
     [`${manifest}\nghp_${'Z'.repeat(36)}`, 'security.credentials'],

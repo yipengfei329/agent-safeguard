@@ -7,7 +7,8 @@ for(const prefix of prefixes)for(const marker of ['${state.sequence}','{{ sequen
  for(const adjacent of ['password="'+secret+'"','serialNumber: SYNTHETIC123456','hostname: SyntheticHost'])assert.equal(engine.scan({value,adjacent}).blocked,true);
 });
 for(const value of [secret+'-${state.sequence}','access-token-${state.sequence}-'+secret,'${state.sequence}-'+secret,secret+'_${state.sequence}_access-token-'])test('opaque fixed template material remains blocked '+value,()=>assert.equal(engine.scan('state.token = `'+value+'`;').rule,'security.credentials'));
-for(const text of ['password=`sample-bearer-${state.sequence}`','token="access-token-"','token="ghp_'+'A'.repeat(36)+'-${state.sequence}"','url="https://fixture:short@service.example.invalid"'])test('unchanged non-label evidence '+text,()=>assert.equal(engine.scan(text).rule,'security.credentials'));
+for(const text of ['password=`sample-bearer-${state.sequence}`','token="access-token-"'])test('clean hyphenated template labels pass '+text,()=>assert.equal(engine.scan(text).blocked,false));
+for(const text of ['token="ghp_'+'A'.repeat(36)+'-${state.sequence}"','url="https://fixture:short@service.example.invalid"'])test('unchanged non-label evidence '+text,()=>assert.equal(engine.scan(text).rule,'security.credentials'));
 test('custom exact rules still protect label-shaped template material',()=>{const c=structuredClone(defaults);c.rules.unshift({id:'custom.synthetic',enabled:true,sources:['tool.result'],action:'block',detector:{kind:'exact',values:['access-token-'],caseSensitive:true}});assert.equal(compile(c).scan('token=`access-token-${state.sequence}`').rule,'custom.synthetic');});
 
 test('opt-in location identifies the field without returning a value or private key name',()=>{

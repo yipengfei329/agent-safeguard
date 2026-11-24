@@ -2,7 +2,7 @@ import {test,expect} from 'claude-code/testing';
 // Public database-derived probes, never contacted. No user IPs or transcripts.
 const cn='1.0.1.7',cn6='2400:3200::7';
 function setup(on){on('fs.exists',()=>({value:false}));on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/synthetic'}));}
-for(const [name,value,blocked] of [['cn',cn,true],['cn6',cn6,true],['mapped','::ffff:'+cn,true],['other','8.8.8.8',false],['unknown','203.0.113.7 2001:db8::7',false],['mixed','8.8.8.8 '+cn,true],['other-secret','8.8.8.8 password=SYNTHETIC_SECRET',true]])test(`country hook ${name}`,async($,on)=>{
+for(const [name,value,blocked] of [['cn',cn,true],['cn6',cn6,true],['mapped','::ffff:'+cn,true],['other','8.8.8.8',false],['unknown','203.0.113.7 2001:db8::7',false],['mixed','8.8.8.8 '+cn,true],['other-secret','8.8.8.8 password=sY9!nT4_hE7#tI2-cK8',true]])test(`country hook ${name}`,async($,on)=>{
  setup(on);on('tool.call',()=>({result:{stdout:value,stderr:''}}));let calls=0;
  on('turn.step',async function*(){calls++;return {turnId:'t',index:1,answer:'sent',toolUses:[],stopReason:'end_turn',usage:null};});
  await $.session.start({cwd:'/synthetic',surface:null,isInteractive:false});const r=await $.tool.call({tool:'Bash',command:'fixture'});
