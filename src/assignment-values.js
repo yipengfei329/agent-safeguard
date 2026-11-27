@@ -189,7 +189,7 @@ export function assignmentReason(text,key,policy,budget=()=>{},syntax) {
     if (/^(?:Bearer|Basic)[ \t]+/i.test(firstLine)) {
       const remainder=firstLine.replace(/^(?:Bearer|Basic)[ \t]+/i,'').trim();
       if(placeholder(remainder))return null;
-      const auth=remainder.split(/[\s,;}]/,1)[0];
+      const auth=remainder.split(/[\s,;}"'`]/,1)[0];
       if (valuePresent(auth)) return 'authorization-value';
       return null;
     }

@@ -8,7 +8,26 @@ const ips=['203.0.113.17','198.51.100.21','2001:db8::7','::ffff:203.0.113.17','2
 for(const ip of ips)for(const format of [x=>`peer=${x}`,x=>`连接成功 remote=[${x}]:3210`,x=>`network address [${x}]`,x=>`endpoint=http://[${x}]:8080/health`,x=>`peer=${x}.`,x=>JSON.stringify({peer:x})])test(`redact supported address ${ip} ${format(ip)}`,()=>{const d=compile(config()).inspectAndTransform(wrap(format(ip)),'tool.result','Bash');assert.equal(d.kind,'redacted');assert(!JSON.stringify(d.value).includes(ip));assert(JSON.stringify(d.value).includes('[IP_'));});
 for(const shape of [s=>wrap(s),s=>({result:{stdout:'clean',stderr:s,interrupted:false},isError:true}),s=>JSON.stringify({peer:s}),s=>({peers:[s,s]})])test('repeat references replaced completely in structured data',()=>{const d=compile(config()).inspectAndTransform(shape('peer=203.0.113.17 remote=203.0.113.17'));assert.equal(d.kind,'redacted');assert(!JSON.stringify(d.value).includes('203.0.113.17'));});
 for(const text of ['😀 peer=203.0.\\u0031\\u00313.17','peer=203.0.\x1b[31m113.17','peer=203.0.113.17 remote=198.51.100.9','{"peer":"203.0.113.17","nested":"{\\"peer\\":\\"203.0.113.17\\"}"}'])test('normalization and multiple locations '+JSON.stringify(text),()=>{const d=compile(config()).inspectAndTransform(wrap(text));assert.equal(d.kind,'redacted');assert(!JSON.stringify(d.value).includes('203.0.113.17'));assert(!compile(config()).scan(d.value).blocked);});
-for(const text of ['const peer="203.0.113.17";','curl http://203.0.113.17','203.0.113.17','{"peer":"203.0.113.17","peer":"clean"}','{"203.0.113.17":"value"}','{"peer":"203.0.113.17"'])test('ambiguous/code/key outputs withheld '+text,()=>{assert.equal(compile(config()).inspectAndTransform(wrap(text)).kind,'withhold');});
+for(const text of ['const peer="203.0.113.17";','curl http://203.0.113.17','203.0.113.17','{"peer":"203.0.113.17","peer":"clean"}','{"203.0.113.17":"value"}','{"peer":"203.0.113.17"','["203.0.113.17"'])test('ambiguous/code/key outputs withheld '+text,()=>{assert.equal(compile(config()).inspectAndTransform(wrap(text)).kind,'withhold');});
+test('bracketed host hints and bracketed log prefixes do not break IP redaction',()=>{
+ const engine=compile(config());
+ const withHint={
+  ref:22,
+  result:{
+   stdout:'    time=2026-01-15T12:00:00.123+08:00 level=INFO msg="direct QUIC IPv6 endpoint listening" addr=[2001:db8::7]:51649\n[exited with code 0]\n',
+   stderr:'',
+   interrupted:false,
+   staleReadFileStateHint:"[This command modified 1 file you've previously read: e2e/fixture_test.go. Read it again before editing.]"
+  },
+  text:'    time=2026-01-15T12:00:00.123+08:00 level=INFO msg="direct QUIC IPv6 endpoint listening" addr=[2001:db8::7]:51649\n[exited with code 0]\n'
+ };
+ const d1=engine.inspectAndTransform(withHint,'tool.result','Bash');
+ assert.equal(d1.kind,'redacted');
+ assert(d1.value.result.stdout.includes('addr=[[IP_1]]:51649'));
+ const d2=engine.inspectAndTransform(wrap('[INFO] connection established peer=203.0.113.17'),'tool.result','Bash');
+ assert.equal(d2.kind,'redacted');
+ assert.equal(d2.value.result.stdout,'[INFO] connection established peer=[IP_2]');
+});
 
 const testAddressLog = '    time=2026-01-15T12:00:00.123+00:00 level=INFO msg="IPv6 endpoint listening" addr=[2001:db8::7]:8080';
 const testNetworkLine = `20-${testAddressLog}`;

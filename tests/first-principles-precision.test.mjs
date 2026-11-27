@@ -29,6 +29,7 @@ const realWorldCleanSnippets=[
   ['mock-device-identifiers','{"device_id": "device-1", "udid": "unknown", "serialNumber": "test-serial-01", "emulator": {"deviceId": "emulator-5554"}}'],
   ['reserved-broadcast-multicast-macs','ether 00:00:00:00:00:00 brd ff:ff:ff:ff:ff:ff mcast 01:00:5e:00:00:fb ipv6mcast 33:33:00:00:00:01 doc 00:00:5e:00:53:af'],
   ['sandbox-stripe-and-aws-doc-example','const testKey = "sk_test_51SyntheticSandboxValue123456"; const docKey = "AKIAIOSFODNN7EXAMPLE";'],
+  ['sequential-provider-ui-placeholders','const placeholder = "sk-proj-1234567890abcdefghij";\n// Authorization: Bearer sk-proj-0123456789abcdefghij\nlet token = "ghp_0123456789abcdefghijklmnopqrstuvwxyz";\nconst mockGitlab = "glpat-your-api-token-placeholder";\nconst dummyJwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.fake_signature_for_testing_only";\nconst curlCmd = "OPENAI_API_KEY=sk-proj-1234567890abcdefghij curl -H \'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\' https://api.example.com";'],
 ];
 
 test('multi-language real-world code and config patterns pass with zero false positives while preserving adjacent detections',()=>{
@@ -68,6 +69,9 @@ test('expanded high-specificity provider signatures detect bare tokens across ec
     const hit=engine.scan(`const fixture = "${token}";`,'tool.result','Read');
     assert.equal(hit.rule,'security.credentials',id);
     assert.equal(hit.reason,'token-format',id);
+    const mixed=engine.scan(`const placeholder = "sk-proj-1234567890abcdefghij";\nconst leaked = "${token}";`,'tool.result','Edit');
+    assert.equal(mixed.rule,'security.credentials',`${id} after sequential placeholder`);
+    assert.equal(mixed.reason,'token-format',`${id} after sequential placeholder`);
   }
 });
 

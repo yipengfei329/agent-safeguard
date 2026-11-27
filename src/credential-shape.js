@@ -18,6 +18,46 @@ const shortPrefixedRe=new RegExp('^[-_./]*'+segWord+'(?:[-_./]+'+segWord+'){0,2}
 const hexOnlyRe=/^[0-9a-f]+$/i;
 const uuidShape=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const onlySeparators=/^[-_./]+$/;
+export const providerPrefixRe=/^(?:sk-ant-(?:api|admin)\d{2}-|sk-(?:proj|svcacct|admin)-|gh[pousr]_|github_pat_(?:[A-Za-z0-9]+_)?|glpat-|xox[baprs]-(?:\d+-)*|(?:AKIA|ASIA)|AIza|(?:sk|rk)_(?:live|test)_|whsec_|hf_|npm_|pypi-|SG\.)/;
+const qwerty='qwertyuiopasdfghjklzxcvbnm';
+
+// Zero-allocation check for human-typed ascending/descending/keyboard dummy runs
+// (e.g. 1234567890abcdefghij) whose zero-order character diversity is artificially high.
+export function syntheticSequence(value) {
+  if(!value||value.length<8||value.length>256)return false;
+  let start=0;
+  if(
+    value.startsWith('sk-')||value.startsWith('gh')||value.startsWith('glpat-')||
+    value.startsWith('xox')||value.startsWith('AKIA')||value.startsWith('ASIA')||
+    value.startsWith('AIza')||value.startsWith('rk_')||value.startsWith('whsec_')||
+    value.startsWith('hf_')||value.startsWith('npm_')||value.startsWith('pypi-')||value.startsWith('SG.')
+  ){
+    const m=providerPrefixRe.exec(value);
+    if(m)start=m[0].length;
+  }
+  let digitMask=0,alphaMask=0,distinct=0,alnumCount=0,seqSteps=0,prev=0;
+  for(let i=start;i<value.length;i++){
+    let code=value.charCodeAt(i);
+    if(code>=65&&code<=90)code+=32;
+    const isDigit=code>=48&&code<=57;
+    const isLower=code>=97&&code<=122;
+    if(!isDigit&&!isLower)continue;
+    if(isDigit){const bit=1<<(code-48);if(!(digitMask&bit)){digitMask|=bit;distinct++;}}
+    else{const bit=1<<(code-97);if(!(alphaMask&bit)){alphaMask|=bit;distinct++;}}
+    if(alnumCount>0){
+      const prevDigit=prev>=48&&prev<=57;
+      if(prevDigit===isDigit&&Math.abs(code-prev)===1)seqSteps++;
+      else if(
+        (prev===57&&(code===48||code===97))||(prev===48&&(code===49||code===97))||
+        (prev===102&&code===48)||(prev===122&&(code===48||code===49||code===97))||
+        (!prevDigit&&!isDigit&&qwerty.includes(String.fromCharCode(prev,code)))
+      )seqSteps++;
+    }
+    prev=code;
+    alnumCount++;
+  }
+  return alnumCount>=8&&distinct>=4&&seqSteps*4>=(alnumCount-1)*3;
+}
 
 export function labelEvidence(value,password=false) {
   if(!value||value.length>128||value.endsWith('=')||hexOnlyRe.test(value)||uuidShape.test(value))return false;
@@ -33,7 +73,7 @@ export function atomicEvidence(value,password=false) {
   if(value.length<8)return null;
   const encoded=tokenAlphabet.test(value),mixed=passwordAlphabet.test(value);
   if(!encoded&&!mixed)return null;
-  if(labelEvidence(value,password))return null;
+  if(labelEvidence(value,password)||syntheticSequence(value))return null;
   const sample=value.slice(0,256);
   const entropy=diversity(sample);
   if(hexOnlyRe.test(sample)){

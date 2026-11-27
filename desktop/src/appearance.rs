@@ -1,4 +1,3 @@
-use gpui_kit::component::StyledExt;
 use gpui_kit::component::{Icon, IconName, Theme, ThemeMode};
 use gpui_kit::component::{
     Selectable,
@@ -8,10 +7,21 @@ use gpui_kit::*;
 pub const BG: u32 = 0x15161B;
 pub const SIDEBAR: u32 = 0x101115;
 pub const SURFACE: u32 = 0x1B1C22;
+pub const SURFACE_SUBTLE: u32 = 0x17181E;
 pub const BORDER: u32 = 0x2B2D35;
+pub const BORDER_WARN: u32 = 0x6B4F24;
 pub const TEXT: u32 = 0xE8E8EF;
 pub const MUTED: u32 = 0x93949F;
 pub const ACCENT: u32 = 0x8D81F5;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Tone {
+    Neutral,
+    Accent,
+    Success,
+    Warning,
+}
+
 pub fn init(cx: &mut App) {
     Theme::change(ThemeMode::Dark, None, cx);
     Theme::update(cx, |t| {
@@ -70,33 +80,33 @@ pub fn navigation_item(
         .accessibility_label(label)
         .selected(active)
         .w_full()
-        .h(px(44.))
+        .h(px(42.))
         .px_3()
         .rounded(px(8.))
-        .bg(rgb(if active { 0x30313B } else { SIDEBAR }))
+        .bg(rgb(if active { 0x2A2B36 } else { SIDEBAR }))
         .text_color(rgb(TEXT))
         .child(
             div()
                 .w_full()
                 .flex()
                 .items_center()
-                .gap(px(12.))
+                .gap(px(11.))
                 .child(
                     div()
-                        .w(px(24.))
+                        .w(px(22.))
                         .flex_shrink_0()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .child(Icon::new(glyph).size(px(20.)).text_color(rgb(if active {
+                        .child(Icon::new(glyph).size(px(18.)).text_color(rgb(if active {
                             0xC3B9FF
                         } else {
-                            0xA7A9B5
+                            0x9B9DAA
                         }))),
                 )
                 .child(
                     div()
-                        .text_size(px(15.))
+                        .text_size(px(14.))
                         .font_weight(if active {
                             FontWeight::SEMIBOLD
                         } else {
@@ -106,7 +116,13 @@ pub fn navigation_item(
                 ),
         )
 }
-pub fn badge(text: impl Into<SharedString>, accent: bool) -> Div {
+pub fn pill(text: impl Into<SharedString>, tone: Tone) -> Div {
+    let (bg, fg) = match tone {
+        Tone::Neutral => (0x25262E, 0xB0B1BC),
+        Tone::Accent => (0x29243E, 0xB6ABFF),
+        Tone::Success => (0x1B3129, 0x7CE2B3),
+        Tone::Warning => (0x362A18, 0xF5C97B),
+    };
     div()
         .flex()
         .items_center()
@@ -114,33 +130,9 @@ pub fn badge(text: impl Into<SharedString>, accent: bool) -> Div {
         .px_2()
         .py_1()
         .rounded_md()
-        .bg(rgb(if accent { 0x29243E } else { 0x25262E }))
-        .text_color(rgb(if accent { 0xB6ABFF } else { 0xB0B1BC }))
+        .bg(rgb(bg))
+        .text_color(rgb(fg))
         .text_size(px(11.))
+        .font_weight(FontWeight::MEDIUM)
         .child(text.into())
-}
-pub fn section(title: &str, description: &str) -> Div {
-    div()
-        .v_flex()
-        .gap_1()
-        .mt_3()
-        .mb_1()
-        .child(
-            div()
-                .text_size(px(13.))
-                .font_weight(FontWeight::SEMIBOLD)
-                .child(title.to_owned()),
-        )
-        .child(
-            div()
-                .text_size(px(12.))
-                .text_color(rgb(MUTED))
-                .child(description.to_owned()),
-        )
-}
-pub fn revision(value: &str) -> String {
-    value
-        .strip_prefix("desktop-")
-        .map(|s| format!("r{}", &s[s.len().saturating_sub(6)..]))
-        .unwrap_or_else(|| value.to_owned())
 }

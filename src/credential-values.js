@@ -1,5 +1,5 @@
 import {symbolReference} from './symbol-values.js';
-import {atomicEvidence,phraseEvidence,credentialAtoms,labelEvidence} from './credential-shape.js';
+import {atomicEvidence,phraseEvidence,credentialAtoms,labelEvidence,syntheticSequence} from './credential-shape.js';
 import {placeholder} from './value-syntax.js';
 export {placeholder,readQuoted} from './value-syntax.js';
 
@@ -35,6 +35,10 @@ function* templateLiterals(value,budget) {
   yield value.slice(start);
 }
 
+const jwtShape=/^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.([A-Za-z0-9_-]*)$/;
+const jwtHeaderOnly=/^eyJ(?:hbGci|0eXAi|raWQi)[A-Za-z0-9_-]{4,80}={0,2}$/;
+const fakeJwtSig=/^(?:sig(?:nature)?|fake|mock|test|dummy|example|placeholder|invalid|unsigned)[-_a-z0-9]*$/i;
+
 export function secretValue(value, name='', budget=()=>{}) {
   value=value.trim();
   const password=/pass(?:word|wd)/i.test(name);
@@ -48,8 +52,14 @@ export function secretValue(value, name='', budget=()=>{}) {
   if(/^(?:&(?:'[A-Za-z_]\w*[ \t]+)?(?:mut[ \t]+)?)?[A-Za-z_]\w*(?:::\w+)*(?:<[^=\r\n]+>)?(?:\[\]|\?)?$/.test(value)&&/[<>&?:]/.test(value))return false;
   if(nonSecretLocatorOrPattern(value))return false;
   if(/^(?:Bearer|Basic)[ \t]+/i.test(value))return secretValue(value.replace(/^(?:Bearer|Basic)[ \t]+/i,''),name,budget);
+  if(value.startsWith('eyJ')){
+    if(jwtHeaderOnly.test(value))return false;
+    const jwt=jwtShape.exec(value);
+    if(jwt){const sig=jwt[1];return sig.length>=20&&!fakeJwtSig.test(sig)&&!syntheticSequence(sig)&&!labelEvidence(sig,false);}
+  }
   if(/[ \t]/.test(value)&&!password)return false;
   if(atomicEvidence(value,password)||password&&phraseEvidence(value))return true;
+  if(syntheticSequence(value))return false;
   for(const m of value.matchAll(credentialAtoms)){
     budget();
     if(m[0].length<8||m[0].length===value.length)continue;

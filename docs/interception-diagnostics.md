@@ -36,6 +36,18 @@
 
 `xcresulttool ... | head -5` 等做法可能保留 `deviceId`，丢掉同一设备记录后面的 `platform`。检测器不能据工具名称或文件后缀假设它是模拟器。
 
+`test-results summary` 也包含设备记录。只需要测试统计时，先解析完整 JSON，再选择结果与计数：
+
+```sh
+set -o pipefail
+xcrun xcresulttool get test-results summary --path "$RESULT" |
+  jq '{result, totalTestCount, passedTests, failedTests, skippedTests, expectedFailures}'
+```
+
+字段已按本机 `xcresulttool get test-results summary --schema` 的默认 Schema 0.5.0 核对。该投影省略设备对象、环境描述和自由文本；工具返回仍需经过检测。`pipefail` 保留上游失败状态，标准错误仍由工具返回检查，不将 `2>&1` 混入 JSON。不要先用 `head` 或 `cut` 截断 JSON，也不要只删除 `deviceId` 后返回其余设备信息。
+
+同一 Bash 调用中输出的原始日志也会参与检测，`sed ... | cut -c1-300` 不能保证去掉设备标识。统计查询应单独返回上述投影；需要日志时另行选择必要字段，保留检测。
+
 应先解析完整 JSON，再投影所需字段。例如对于含 `testNodes` 的测试报告：
 
 ```sh

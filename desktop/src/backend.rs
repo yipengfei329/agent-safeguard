@@ -10,8 +10,8 @@ use std::{
 };
 
 pub const PLUGIN_ID: &str = "agent-safeguard@agent-safeguard-local";
-pub const BUNDLED_VERSION: &str = "0.3.0";
-pub const DEFAULT_RULES: &str = include_str!("../../config/tool-results.json");
+pub const BUNDLED_VERSION: &str = "0.3.2";
+pub const DEFAULT_RULES: &str = include_str!("../../config/redact-results.json");
 const MAX_BYTES: usize = 1_048_576;
 pub type Result<T> = std::result::Result<T, &'static str>;
 
@@ -473,6 +473,121 @@ pub fn fresh_rules() -> String {
             .starts_with("personal.synthetic-")
     });
     serde_json::to_string_pretty(&v).unwrap()
+}
+
+fn push_identity_candidate(out: &mut Vec<String>, raw: &str) {
+    let trimmed = raw.trim();
+    if trimmed.len() < 3 || trimmed.len() > 256 {
+        return;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if matches!(
+        lower.as_str(),
+        "localhost"
+            | "localhost.localdomain"
+            | "broadcasthost"
+            | "default"
+            | "unknown"
+            | "none"
+            | "local"
+            | "macbook"
+            | "mac"
+            | "imac"
+            | "ubuntu"
+            | "linux"
+            | "windows"
+            | "00:00:00:00:00:00"
+            | "ff:ff:ff:ff:ff:ff"
+    ) || lower.ends_with(".localhost")
+        || lower.ends_with(".example.com")
+        || lower.ends_with(".test")
+    {
+        return;
+    }
+    if trimmed.parse::<std::net::IpAddr>().is_ok() {
+        return;
+    }
+    if !out.iter().any(|existing| existing.eq_ignore_ascii_case(trimmed)) && out.len() < 128 {
+        out.push(trimmed.to_owned());
+    }
+}
+
+/// Pure offline local machine identity discovery for private exact rules.
+/// Never logged, transmitted, or exposed outside `0600` local rules.
+pub fn collect_local_identity(demo: bool) -> Vec<String> {
+    if demo {
+        return vec![
+            "Demo-Workstation.local".into(),
+            "Demo-Workstation".into(),
+            "DEMO_SERIAL_01".into(),
+        ];
+    }
+    let mut found = Vec::new();
+    if let Some(h) = executable("hostname")
+        .and_then(|p| run(&p, &[], None, Duration::from_secs(2)).ok())
+        .and_then(|b| String::from_utf8(b).ok())
+    {
+        let host = h.trim();
+        push_identity_candidate(&mut found, host);
+        if let Some(stem) = host.strip_suffix(".local").or_else(|| host.strip_suffix(".LOCAL")) {
+            push_identity_candidate(&mut found, stem);
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(scutil) = executable("scutil") {
+            for key in ["ComputerName", "LocalHostName", "HostName"] {
+                if let Ok(bytes) = run(&scutil, &["--get", key], None, Duration::from_secs(2)) {
+                    if let Ok(text) = String::from_utf8(bytes) {
+                        push_identity_candidate(&mut found, &text);
+                    }
+                }
+            }
+        }
+        if let Some(ioreg) = executable("ioreg") {
+            if let Ok(bytes) = run(
+                &ioreg,
+                &["-rd1", "-c", "IOPlatformExpertDevice"],
+                None,
+                Duration::from_secs(3),
+            ) {
+                let text = String::from_utf8_lossy(&bytes);
+                for marker in ["\"IOPlatformSerialNumber\"", "\"IOPlatformUUID\""] {
+                    if let Some(rest) = text.split(marker).nth(1) {
+                        if let Some(val) = rest.split('"').nth(1) {
+                            push_identity_candidate(&mut found, val);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ifconfig) = executable("ifconfig") {
+            if let Ok(bytes) = run(&ifconfig, &[], None, Duration::from_secs(3)) {
+                let text = String::from_utf8_lossy(&bytes);
+                for line in text.lines() {
+                    if let Some(mac) = line.trim().strip_prefix("ether ") {
+                        let mac = mac.split_whitespace().next().unwrap_or("").to_ascii_lowercase();
+                        if mac.len() == 17
+                            && !mac.starts_with("00:00:00")
+                            && !mac.starts_with("ff:ff:ff")
+                        {
+                            push_identity_candidate(&mut found, &mac);
+                            push_identity_candidate(&mut found, &mac.replace(':', "-"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(bytes) = fs::read("/etc/machine-id") {
+            if let Ok(text) = String::from_utf8(bytes) {
+                push_identity_candidate(&mut found, &text);
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]

@@ -13,6 +13,12 @@ async function desktopConfig($) {
 function label(value, limit=160) {
   return typeof value==='string'?value.slice(0,limit).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g,' ').replace(/[\ud800-\udbff]$/,'').trim():null;
 }
+function promptTitle(text) {
+  if(typeof text!=='string')return null;
+  const cleaned=text.replace(/<([a-zA-Z0-9_-]+)(?:\s[^>]*)?>[\s\S]*?<\/\1>/g,' ');
+  const line=cleaned.split(/\r?\n/).map(s=>s.trim()).find(s=>s&&!s.startsWith('/'));
+  return line?label(line.replace(/\s+/g,' '),60):null;
+}
 async function startReports($, snapshot, lifecycle) {
   try {
     const c=await desktopConfig($);if(!c)return;
@@ -68,7 +74,7 @@ export function register(on){
   const lifecycle={events:[],ended:false,timer:null,finish:null,identity:{agent:'Claude Code',hostSessionId:null,title:null,project:null,model:null,agentType:null}};let reporting=false,finalDecision=null,interception=null;const actors=new Map();
   let barrierCause=null,lastDetection=null,relatedRefusals=0;
   const diagnostic=()=>({cause:barrierCause||lastDetection,relatedRefusals,nextAction:nextAction({ready,blocked:locked(),modern:modern(),ended:lifecycle.ended,barrier:recovery.barrier(),recovery:recovery.snapshot(),admission:recovery.admission()}),admission:recovery.admission()});
-  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.3.0',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
+  const report=()=>({...(modern()?{schema:5,recovery:recovery.snapshot(),diagnostic:diagnostic()}:{}),identity:lifecycle.identity,interception,pluginVersion:'0.3.2',ready,blocked:locked(),ended:lifecycle.ended,lastEvent:finalDecision?.event||barrierCause?.event||lastEvent,ruleVersion:engine.version,lastRule:safeRule(finalDecision?.rule||barrierCause?.rule||lastRule)});
   function capture(rule,event,tool,agentId){
     lastDetection=diagnosticCause(rule,lastReason,event,tool,lastLocation);
     if(interception&&!modern())return;
@@ -81,9 +87,10 @@ export function register(on){
   function pauseCurrent(reason,hard){recovery.pauseCurrent(reason,hard);barrierCause??=lastDetection;}
   function inspect(value,source,tool,agentId,event=source){const r=engine.scan(value,source,tool);if(r.blocked){lastRule=r.rule;lastReason=r.reason||null;lastLocation=r.location||null;lastEvent=event;capture(r.rule,event,tool,agentId);}for(const id of r.observed||[])observed.add(id);return r;}
   function fail(rule,event){blocked=true;lastRule=rule;lastReason=null;lastLocation=null;lastEvent=event;capture(rule,event);pauseCurrent(rule,true);notify();}
-  // Existing host events supply identity; no transcript scan or title generation.
-  on('classic.SessionStart',($,e,next)=>{Object.assign(lifecycle.identity,{hostSessionId:label(e.session_id,80),project:label(e.cwd,512),title:label(e.session_title),agentType:label(e.agent_type,80),model:label(e.model,80)});notify();return next(e);});
-  on('classic.UserPromptSubmit',($,e,next)=>{if(e.session_title)lifecycle.identity.title=label(e.session_title);notify();return next(e);});
+  // Existing host events supply identity; if host leaves session_title unset, use the first verified-clean user prompt line.
+  let explicitTitle=false;
+  on('classic.SessionStart',($,e,next)=>{const t=label(e.session_title);if(t){explicitTitle=true;lifecycle.identity.title=t;}const sid=label(e.session_id,80);if(sid)lifecycle.identity.hostSessionId=sid;const cwd=label(e.cwd,512);if(cwd)lifecycle.identity.project=cwd;const at=label(e.agent_type,80);if(at)lifecycle.identity.agentType=at;const m=label(e.model,80);if(m)lifecycle.identity.model=m;notify();return next(e);});
+  on('classic.UserPromptSubmit',($,e,next)=>{const t=label(e.session_title);if(t){explicitTitle=true;lifecycle.identity.title=t;}notify();return next(e);});
   on('classic.CwdChanged',($,e,next)=>{lifecycle.identity.project=label(e.new_cwd,512);notify();return next(e);});
   on('classic.SubagentStart',($,e,next)=>{recovery.actorStart(e.agent_id);if(actors.size<64)actors.set(e.agent_id,label(e.agent_type,80));return next(e);});
   const notify=()=>lifecycle.publish?.(interception!==null);
@@ -102,7 +109,7 @@ export function register(on){
     return next(e);
   }).catch(()=>{ready=false;fail('initialization.failed','session.start');return {};});
   // Fixed diagnostic vocabulary is safe to display; never expose custom IDs.
-  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.3.0',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
+  on('command.run',{command:'agent-safeguard-status'},()=>({text:JSON.stringify({pluginVersion:'0.3.2',ready,blocked:locked(),recovery:modern()?recovery.snapshot():{state:blocked?'session-locked':'active'},diagnostic:diagnostic(),...(modern()?{promptAdmission:recovery.admission()}:{}),lastEvent:barrierCause?.event||lastEvent,ruleVersion:engine.version,geoip:engine.geoip,lastRule:safeRule(barrierCause?.rule||lastRule),lastReason:barrierCause?.reason||(lastReason?safeReason(lastReason):null),observedRules:[...new Set([...observed].map(safeRule))],coverage:'experimental-tool-and-context-guard'})}));
   on('command.run',{command:'agent-safeguard-check'},async($,e)=>{
     if(!['composer','bridge','sdk'].includes(e.origin?.kind))return {text:'SAFEGUARD_CHECK_USER_REQUIRED'};
     try{const candidate=await loadEngine($);const clean=candidate.scan('SAFEGUARD_HEALTH_PROBE','tool.result','Bash');if(clean.blocked)return {text:'SAFEGUARD_CHECK_FAILED'};
@@ -167,7 +174,11 @@ export function register(on){
       }
       const reason=recovery.preparePrompt(e);if(reason)return {drop:(['recovery.busy','recovery.wait'].includes(reason)?'SAFEGUARD_WAIT':'SAFEGUARD_PAUSED')+' ['+reason+']; '+(reason==='recovery.user-required'?'Use a new safe message from the trusted user input.':reason==='recovery.wait'?'This message was not queued. Wait for the current turn, tools and agents to end, then resend a safe message.':actionText(diagnostic().nextAction))};
       admission=recovery.commitPrompt(e);if(!admission)return {drop:'SAFEGUARD_RECOVERY_WAIT'};
-      blocked=false;lastRule=null;lastReason=null;lastLocation=null;lastEvent=null;barrierCause=null;lastDetection=null;relatedRefusals=0;notify();
+      blocked=false;lastRule=null;lastReason=null;lastLocation=null;lastEvent=null;barrierCause=null;lastDetection=null;relatedRefusals=0;
+      if(!explicitTitle&&!lifecycle.identity.title&&!e.isMeta&&!e.command&&['composer','bridge','sdk'].includes(e.origin?.kind)){const t=promptTitle(e.text);if(t)lifecycle.identity.title=t;}
+      notify();
+    } else if(!explicitTitle&&!lifecycle.identity.title&&!e.isMeta&&!e.command&&['composer','bridge','sdk'].includes(e.origin?.kind)){
+      const t=promptTitle(e.text);if(t){lifecycle.identity.title=t;notify();}
     }
     try{return await next(e);}
     finally{if(admission){recovery.finishPrompt(admission);notify();}}

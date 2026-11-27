@@ -11,7 +11,7 @@ for(const [overrides,action] of cases)test('recovery advice '+JSON.stringify(ove
 test('custom diagnostic content never crosses the boundary',()=>{
  const secret='SYNTHETIC_PRIVATE_VALUE';const c=diagnosticCause(secret,secret,secret,secret);
  assert.deepEqual(c,{rule:'custom.rule',reason:'rule.match',event:'tool.call',tool:null});
- assert(!refusal({effect:'unknown',cause:c,action:'health-check'}).includes(secret));assert.equal(safeRule(null),null);assert.equal(safeReason(secret),'rule.match');
+ assert(!refusal({effect:'unknown',cause:c,action:'health-check'}).includes(secret));assert.equal(safeRule(null),null);assert.equal(safeRule('network.address.output'),'network.address');assert.equal(safeReason(secret),'rule.match');
 });
 for(const effect of ['input','result','unknown','spawn','spawn-result'])test('follow-on effect is independent of original cause: '+effect,()=>{
  const cause=diagnosticCause('security.credentials','url-password','tool.input','Write');const r=refusal({effect,cause,action:'wait-work',related:true});

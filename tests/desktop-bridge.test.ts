@@ -58,3 +58,20 @@ test('an unresolved report write cannot hold up a clean tool result',async($,on)
  await $.session.start({cwd:'/synthetic',surface:null,isInteractive:false});
  expect((await $.tool.call({tool:'Bash',command:'fixture'})).result).toBe('BUILD_OK');release();
 });
+test('first clean prompt populates missing session title while blocked prompts never leak to identity',async($,on)=>{
+ const clock=mock.clock(on);const writes=[];const v2={...JSON.parse(JSON.stringify(config)),schemaVersion:2,policy:{...config.policy,recovery:'next-safe-user-prompt'}};
+ on('fs.exists',()=>({value:true}));on('fs.read',($,e)=>({value:JSON.stringify(e.path.endsWith('desktop.json')?bridge:v2)}));
+ on('fs.write',($,e)=>{writes.push(e);return {value:undefined};});on('command.register',()=>({value:undefined}));on('session.start',()=>({cwd:'/synthetic/service'}));
+ on('prompt.submit',($,e)=>({text:e.text}));
+ await $.session.start({cwd:'/synthetic/service',surface:null,isInteractive:false});
+ const denied=await $.prompt.submit({text:'password=sY9!nT4_hE7#tI2-cK8',context:[],origin:{kind:'composer'}});
+ expect(Boolean(denied.drop)).toBe(true);
+ await clock.advance(1200);
+ expect(JSON.parse(writes[writes.length-1].text).identity.title).toBe(null);
+ await $.prompt.submit({text:'internal meta',context:[],isMeta:true,origin:{kind:'composer'}});
+ await clock.advance(1200);
+ expect(JSON.parse(writes[writes.length-1].text).identity.title).toBe(null);
+ await $.prompt.submit({text:'<ide_opened_file>/synthetic/a.ts</ide_opened_file>\n排查订单同步延迟\n补充说明',context:[],origin:{kind:'composer'}});
+ await clock.advance(1200);
+ expect(JSON.parse(writes[writes.length-1].text).identity.title).toBe('排查订单同步延迟');
+});

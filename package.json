@@ -1,6 +1,6 @@
 {
   "name": "agent-safeguard",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "description": "Local sensitive information protection for coding agents; Claude Code adapter",
   "type": "module",

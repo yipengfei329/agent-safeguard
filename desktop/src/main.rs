@@ -4,6 +4,8 @@ mod rules;
 mod sessions;
 mod updates;
 mod validator;
+
+use appearance::Tone;
 use backend::{Harness, Manager};
 use gpui_kit::component::{
     button::*,
@@ -15,25 +17,29 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::*;
 use rules::Document;
 use std::{
+    collections::BTreeMap,
     path::PathBuf,
     time::{Duration, Instant},
 };
-#[derive(Clone, Copy, PartialEq)]
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Overview,
-    Tools,
     Rules,
+    Tools,
 }
+
 enum Outcome {
     UpdateChecked(updates::Release),
     Initial(Vec<Harness>, backend::Result<Document>),
     Detected(Vec<Harness>),
     Installed(Vec<Harness>),
-    Loaded(Document),
-    Saved(Document),
-    Previous(Document),
+    Saved(Document, &'static str),
+    Undone(Document),
+    SyncedIdentity(Document, usize),
     Program(Manager, Vec<Harness>),
 }
+
 struct Desktop {
     manager: Manager,
     scroll: ScrollHandle,
@@ -45,21 +51,25 @@ struct Desktop {
     saved: Option<Document>,
     draft: Option<Document>,
     feed: sessions::Feed,
-    detail: Option<sessions::Session>,
     connections_page: usize,
     edit: bool,
     edit_index: Option<usize>,
+    edit_is_domain: bool,
+    edit_case_sensitive: bool,
     name: Entity<InputState>,
     value: Entity<InputState>,
+    sandbox: Entity<InputState>,
+    sandbox_running: bool,
+    sandbox_result: Option<backend::Result<validator::SandboxResult>>,
     reveal: bool,
     confirm_uninstall: bool,
-    confirm_discard: bool,
     close_pending: bool,
     about: bool,
     started: Instant,
     measure: bool,
     measured: bool,
 }
+
 impl Desktop {
     fn new(
         manager: Manager,
@@ -69,11 +79,14 @@ impl Desktop {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let name = cx.new(|cx| InputState::new(window, cx).placeholder("规则名称"));
+        let name = cx.new(|cx| InputState::new(window, cx).placeholder("备注名称（例如：公司内网域名）"));
         let value = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("需要匹配的精确文本")
+                .placeholder("需要保护的敏感词或域名后缀")
                 .masked(true)
+        });
+        let sandbox = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("输入任意文本，离线测试当前规则是否放行、脱敏或拦截…")
         });
         let mut s = Self {
             manager,
@@ -82,19 +95,22 @@ impl Desktop {
             page,
             harnesses: vec![],
             busy: false,
-            notice: "正在读取本机配置…".into(),
+            notice: "本地离线防护运行中".into(),
             saved: None,
             draft: None,
             feed: Default::default(),
-            detail: None,
             connections_page: 0,
             edit: false,
             edit_index: None,
+            edit_is_domain: false,
+            edit_case_sensitive: true,
             name,
             value,
+            sandbox,
+            sandbox_running: false,
+            sandbox_result: None,
             reveal: false,
             confirm_uninstall: false,
-            confirm_discard: false,
             close_pending: false,
             about: false,
             started,
@@ -108,7 +124,6 @@ impl Desktop {
         cx.spawn_in(window, async move |view, cx| {
             let mut observer = sessions::Observer::default();
             loop {
-                cx.background_executor().timer(Duration::from_secs(2)).await;
                 let m = manager.clone();
                 let (next_observer, reports) = cx
                     .background_executor()
@@ -128,6 +143,7 @@ impl Desktop {
                 {
                     break;
                 }
+                cx.background_executor().timer(Duration::from_secs(2)).await;
             }
         })
         .detach();
@@ -137,7 +153,6 @@ impl Desktop {
                 if s.busy || s.dirty() || s.edit {
                     s.scroll.set_offset(point(px(0.), px(0.)));
                     s.close_pending = true;
-                    s.notice = "还有操作或未保存更改，请保存、放弃或取消关闭。".into();
                     cx.notify();
                     false
                 } else {
@@ -148,12 +163,14 @@ impl Desktop {
         });
         s
     }
+
     fn dirty(&self) -> bool {
         self.draft
             .as_ref()
             .zip(self.saved.as_ref())
             .is_some_and(|(d, s)| d.dirty(s))
     }
+
     fn work(
         &mut self,
         window: &mut Window,
@@ -164,14 +181,14 @@ impl Desktop {
             return;
         }
         self.busy = true;
-        self.notice = "正在本机处理…".into();
         cx.notify();
         let m = self.manager.clone();
         let task = cx.background_executor().spawn(async move { job(m) });
         cx.spawn_in(window, async move |view, cx| {
             let result = task.await;
-            let _ = view.update_in(cx, |s, _, cx| {
+            let _ = view.update_in(cx, |s, w, cx| {
                 s.busy = false;
+                let mut rerun_sandbox = false;
                 match result {
                     Ok(Outcome::UpdateChecked(r)) => {
                         let current = s
@@ -181,11 +198,11 @@ impl Desktop {
                             .map(|h| h.plugin.as_str())
                             .unwrap_or(backend::BUNDLED_VERSION);
                         if backend::version(&r.version).ok() > backend::version(current).ok() {
-                            s.notice = format!("发现插件 {}，可以下载并更新。", r.version);
+                            s.notice = format!("发现新版本插件 v{}", r.version);
                             s.release = Some(r);
                         } else {
                             s.release = None;
-                            s.notice = "发布源没有比当前版本更新的插件。".into();
+                            s.notice = "当前已是最新版本".into();
                         }
                     }
                     Ok(Outcome::Initial(h, d)) => {
@@ -194,48 +211,120 @@ impl Desktop {
                             Ok(d) => {
                                 s.saved = Some(d.clone());
                                 s.draft = Some(d);
-                                s.notice = "本机配置已读取。安装状态与会话接入分别显示。".into();
+                                s.notice = "本地离线防护运行中".into();
                             }
                             Err(e) => s.notice = error_text(e).into(),
                         }
                     }
                     Ok(Outcome::Detected(h)) => {
                         s.harnesses = h;
-                        s.notice = "环境检测完成。".into();
+                        s.notice = "环境状态已更新".into();
                     }
                     Ok(Outcome::Installed(h)) => {
                         s.harnesses = h;
-                        s.notice =
-                            "已重新核对安装配置。安装、启用或更新后，请新建 Claude 会话确认接入。"
-                                .into();
+                        s.notice = "插件状态已更新（新会话生效）".into();
                     }
-                    Ok(Outcome::Loaded(d)) => {
+                    Ok(Outcome::Saved(d, msg)) => {
                         s.saved = Some(d.clone());
                         s.draft = Some(d);
-                        s.edit = false;
-                        s.notice = "已读取规则。".into();
+                        s.notice = msg.into();
+                        rerun_sandbox = true;
                     }
-                    Ok(Outcome::Saved(d)) => {
+                    Ok(Outcome::Undone(d)) => {
                         s.saved = Some(d.clone());
                         s.draft = Some(d);
-                        s.notice = "已保存，新会话生效。已有会话仍使用各自加载的版本。".into();
+                        s.notice = "已撤销上次规则修改".into();
+                        rerun_sandbox = true;
                     }
-                    Ok(Outcome::Previous(d)) => {
+                    Ok(Outcome::SyncedIdentity(d, count)) => {
+                        s.saved = Some(d.clone());
                         s.draft = Some(d);
-                        s.notice = "已载入草稿，请检查变化后保存。".into();
+                        s.notice = format!("已同步 {count} 项本机设备标识（新会话生效）");
+                        rerun_sandbox = true;
                     }
                     Ok(Outcome::Program(m, h)) => {
                         s.manager = m;
                         s.harnesses = h;
-                        s.notice = "已保存程序位置并重新检测。".into();
+                        s.notice = "已更新 Claude Code 程序路径".into();
                     }
-                    Err(e) => s.notice = error_text(e).into(),
+                    Err(e) => {
+                        if e == "RULES_CHANGED_EXTERNALLY" {
+                            if let Ok(fresh) = s.manager.document() {
+                                s.saved = Some(fresh.clone());
+                                s.draft = Some(fresh);
+                            }
+                        } else if let Some(saved) = s.saved.clone() {
+                            if !s.edit {
+                                s.draft = Some(saved);
+                            }
+                        }
+                        s.notice = error_text(e).into();
+                    }
+                }
+                if rerun_sandbox && !s.sandbox.read(cx).value().trim().is_empty() {
+                    s.run_sandbox(w, cx);
                 }
                 cx.notify();
             });
         })
         .detach();
     }
+
+    fn commit_next(
+        &mut self,
+        next: Document,
+        msg: &'static str,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.draft = Some(next.clone());
+        self.work(w, cx, move |m| {
+            m.commit_document(next).map(|d| Outcome::Saved(d, msg))
+        });
+    }
+
+    fn sync_identity(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        let Some(base_doc) = self.draft.clone() else {
+            return;
+        };
+        let demo = self.manager.demo;
+        self.work(w, cx, move |m| {
+            let values = backend::collect_local_identity(demo);
+            let mut doc = base_doc;
+            let count = doc.sync_local_identity(values)?;
+            let saved = m.commit_document(doc)?;
+            Ok(Outcome::SyncedIdentity(saved, count))
+        });
+    }
+
+    fn run_sandbox(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        let sample = self.sandbox.read(cx).value().to_string();
+        if sample.trim().is_empty() {
+            self.sandbox_result = None;
+            self.sandbox_running = false;
+            cx.notify();
+            return;
+        }
+        let Some(doc) = self.draft.clone() else {
+            return;
+        };
+        let m = self.manager.clone();
+        self.sandbox_running = true;
+        cx.notify();
+        let task = cx
+            .background_executor()
+            .spawn(async move { m.preview_sample(&doc, &sample) });
+        cx.spawn_in(w, async move |view, cx| {
+            let res = task.await;
+            let _ = view.update_in(cx, |s, _, cx| {
+                s.sandbox_running = false;
+                s.sandbox_result = Some(res);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     fn action(&mut self, action: &'static str, w: &mut Window, cx: &mut Context<Self>) {
         self.confirm_uninstall = false;
         self.work(w, cx, move |m| {
@@ -243,6 +332,7 @@ impl Desktop {
             Ok(Outcome::Installed(m.detect()))
         });
     }
+
     fn select_program(&mut self, w: &mut Window, cx: &mut Context<Self>) {
         let picker = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -265,6 +355,7 @@ impl Desktop {
         })
         .detach();
     }
+
     fn panel(
         &self,
         title: impl Into<SharedString>,
@@ -283,6 +374,7 @@ impl Desktop {
                 div()
                     .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(appearance::TEXT))
                     .child(title.into()),
             )
             .child(
@@ -292,57 +384,118 @@ impl Desktop {
                     .child(detail.into()),
             )
     }
-    fn rule_label(&self, row: &sessions::Session) -> String {
+
+    fn anomaly_category(&self, row: &sessions::Session) -> String {
+        if row
+            .reason_code()
+            .is_some_and(|r| r.starts_with("redaction."))
+        {
+            return "中国境内公网 IP".into();
+        }
         let id = row.matched_rule().unwrap_or("");
         match id {
-            "network.address" => "IP 地址规则".into(),
-            "identity.device" => "设备标识规则".into(),
-            "identity.environment" => "主机名规则".into(),
-            "security.credentials" => "凭据规则".into(),
-            "inspection.failed" => "检查未完成（非规则命中）".into(),
-            "initialization.failed" => "初始化失败（非规则命中）".into(),
-            "tool.hook.failed" | "prompt.hook.failed" | "context.hook.failed" => {
-                "插件处理异常（非规则命中）".into()
+            "personal.local-identity" => "本机设备标识".into(),
+            "network.address" | "network.address.output" => "中国境内公网 IP".into(),
+            "identity.device" => "设备硬件标识".into(),
+            "identity.environment" => "主机名字段".into(),
+            "security.credentials" => "密钥与凭据".into(),
+            "inspection.failed" => {
+                if row.reason_code() == Some("inspection.timeout") {
+                    "大输出扫描超时".into()
+                } else {
+                    "扫描内容超限".into()
+                }
             }
-            "custom.rule" | "" => "自定义规则（旧版未记录具体规则）".into(),
+            "initialization.failed" => "插件初始化异常".into(),
+            "context.hook.failed" => "上下文检查异常".into(),
+            "tool.hook.failed" | "prompt.hook.failed" => "插件运行异常".into(),
+            "custom.rule" | "" => "自定义敏感词".into(),
             _ => self
                 .saved
                 .as_ref()
                 .filter(|d| d.version() == row.rule_version)
+                .or(self.draft.as_ref())
                 .and_then(|d| {
                     d.rows()
                         .iter()
                         .find(|r| r["id"].as_str() == Some(id))
                         .map(|r| d.name(r))
                 })
-                .unwrap_or_else(|| format!("规则 {id}")),
+                .unwrap_or_else(|| "自定义敏感词".into()),
         }
     }
+
+    fn anomaly_headline(&self, row: &sessions::Session) -> String {
+        let cat = self.anomaly_category(row);
+        let eff = row.effect_summary();
+        match row.concise_reason() {
+            Some(reason) if !cat.contains("超时") => format!("{cat} · {eff}（{reason}）"),
+            _ => format!("{cat} · {eff}"),
+        }
+    }
+
+    fn rule_id_label(&self, id: &str) -> String {
+        match id {
+            "personal.local-identity" => "本机设备标识".into(),
+            "network.address" | "network.address.output" => "中国境内公网 IP".into(),
+            "identity.device" => "设备硬件标识".into(),
+            "identity.environment" => "主机名字段".into(),
+            "security.credentials" => "密钥与凭据".into(),
+            _ => self
+                .draft
+                .as_ref()
+                .and_then(|d| {
+                    d.rows()
+                        .iter()
+                        .find(|r| r["id"].as_str() == Some(id))
+                        .map(|r| d.name(r))
+                })
+                .unwrap_or_else(|| "自定义规则".into()),
+        }
+    }
+
     fn overview(&self, cx: &mut Context<Self>) -> AnyElement {
         let now = sessions::now();
         let dashboard = sessions::Dashboard::new(self.feed.sessions.values(), now);
-        let mut protected = std::collections::BTreeMap::<String, &sessions::Session>::new();
-        for row in dashboard
-            .current
-            .iter()
-            .filter(|r| r.connection_state(now) == sessions::ConnectionState::Connected)
-        {
+
+        // Deduplicate live sessions by host_session_id, keeping paused/attention state first.
+        let mut live_by_host = BTreeMap::<String, &sessions::Session>::new();
+        for row in &dashboard.current {
             let key = row
                 .identity
                 .host_session_id
                 .clone()
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| row.session.clone());
-            if protected
-                .get(&key)
-                .is_none_or(|old| old.updated_at < row.updated_at)
-            {
-                protected.insert(key, *row);
+            let replace = live_by_host.get(&key).is_none_or(|old| {
+                let old_prio = old.connection_state(now) == sessions::ConnectionState::Attention;
+                let new_prio = row.connection_state(now) == sessions::ConnectionState::Attention;
+                (new_prio && !old_prio) || (new_prio == old_prio && old.updated_at < row.updated_at)
+            });
+            if replace {
+                live_by_host.insert(key, *row);
             }
         }
-        let mut active: Vec<_> = protected.values().copied().collect();
-        active.sort_by_key(|s| (s.identity.project_name(), s.identity.title()));
-        let mut logs: std::collections::BTreeMap<_, _> = self
+        let mut live_sessions: Vec<_> = live_by_host.into_values().collect();
+        live_sessions.sort_by_key(|s| {
+            let prio = if s.connection_state(now) == sessions::ConnectionState::Attention {
+                0u8
+            } else {
+                1u8
+            };
+            (prio, std::cmp::Reverse(s.updated_at))
+        });
+
+        let mut project_counts = BTreeMap::<&str, usize>::new();
+        for row in &live_sessions {
+            if row.identity.raw_title().is_none() {
+                if let Some(proj) = row.identity.raw_project_name() {
+                    *project_counts.entry(proj).or_insert(0) += 1;
+                }
+            }
+        }
+
+        let mut logs: BTreeMap<_, _> = self
             .feed
             .interceptions
             .iter()
@@ -352,391 +505,1179 @@ impl Desktop {
             logs.entry(row.history_key()).or_insert(row);
         }
         let mut logs: Vec<_> = logs.into_values().collect();
-        logs.sort_by_key(|r| (std::cmp::Reverse(r.blocked_at()), &r.session));
-        let mut content = div().v_flex().gap_4();
-        if let Some(warning) = self.feed.warning.or(self.feed.history_warning) {
-            content = content.child(self.panel("状态读取提醒", warning, cx));
+        logs.sort_by_key(|r| (std::cmp::Reverse(r.effective_time()), &r.session));
+
+        let mut content = div().v_flex().gap_5();
+
+        // Only surface an install banner when protection is NOT currently installed & enabled!
+        if let Some(h) = self.harnesses.first() {
+            if !h.found {
+                content = content.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .p_4()
+                        .rounded_lg()
+                        .bg(rgb(appearance::SURFACE))
+                        .border_1()
+                        .border_color(rgb(appearance::BORDER_WARN))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(rgb(appearance::TEXT))
+                                .child("未检测到 Claude Code 可执行程序，请手动指定位置。"),
+                        )
+                        .child(
+                            Button::new("hero-choose-program")
+                                .primary()
+                                .small()
+                                .label("选择程序")
+                                .disabled(self.busy)
+                                .on_click(cx.listener(|s, _, w, cx| s.select_program(w, cx))),
+                        ),
+                );
+            } else if !h.installed || h.enabled == Some(false) {
+                let (msg, btn_label, cmd) = if !h.installed {
+                    ("本地隐私防护插件尚未安装", "一键安装并启用", "install")
+                } else {
+                    ("本地隐私防护当前已暂停（插件已禁用）", "立即启用", "enable")
+                };
+                content = content.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .p_4()
+                        .rounded_lg()
+                        .bg(rgb(appearance::SURFACE))
+                        .border_1()
+                        .border_color(rgb(appearance::BORDER_WARN))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(rgb(appearance::TEXT))
+                                .child(msg),
+                        )
+                        .child(
+                            Button::new("hero-enable")
+                                .primary()
+                                .small()
+                                .label(btn_label)
+                                .disabled(self.busy || self.manager.demo || !h.query_ok)
+                                .on_click(cx.listener(move |s, _, w, cx| s.action(cmd, w, cx))),
+                        ),
+                );
+            }
         }
-        content = content.child(
+
+        // Core Question 1: Active Protected Sessions
+        let mut active_section = div().v_flex().gap_2().child(
             div()
                 .flex()
                 .items_center()
                 .gap_2()
                 .child(
                     div()
-                        .text_size(px(16.))
+                        .text_size(px(15.))
                         .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(appearance::TEXT))
                         .child("正在保护的会话"),
                 )
-                .child(appearance::badge(active.len().to_string(), false)),
+                .child(appearance::pill(
+                    live_sessions.len().to_string(),
+                    if live_sessions.is_empty() {
+                        Tone::Neutral
+                    } else {
+                        Tone::Success
+                    },
+                )),
         );
-        if active.is_empty() {
-            content = content.child(
-                self.panel(
-                    "暂无已确认接入防护的会话",
-                    "在 Claude Code 中加载插件并新建会话后，项目和会话会自动出现在这里。",
-                    cx,
-                )
-                .child(
-                    Button::new("overview-install")
-                        .small()
-                        .label("打开安装管理")
-                        .on_click(cx.listener(|s, _, _, cx| {
-                            s.page = Page::Tools;
-                            cx.notify();
-                        })),
-                ),
+
+        if live_sessions.is_empty() {
+            active_section = active_section.child(
+                div()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(appearance::SURFACE_SUBTLE))
+                    .border_1()
+                    .border_color(rgb(appearance::BORDER))
+                    .text_size(px(12.))
+                    .text_color(rgb(appearance::MUTED))
+                    .child("当前没有正在运行的 Claude Code 会话。启动新会话后会自动显示在这里。"),
             );
+        } else {
+            for row in live_sessions {
+                let state = row.connection_state(now);
+                let is_attention = state == sessions::ConnectionState::Attention;
+                let dup = row
+                    .identity
+                    .raw_project_name()
+                    .is_some_and(|p| project_counts.get(p).copied().unwrap_or(0) > 1);
+                let headline = row.identity.active_headline(dup);
+                let subline = row.identity.active_subline();
+                let replacements = row.recovery.as_ref().map(|r| r.replacements).unwrap_or(0);
+                let status_pill = match state {
+                    sessions::ConnectionState::Attention => appearance::pill("已暂停", Tone::Warning),
+                    sessions::ConnectionState::Connected => appearance::pill("保护中", Tone::Success),
+                    _ => appearance::pill("接入中", Tone::Neutral),
+                };
+
+                let mut card = div()
+                    .v_flex()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(appearance::SURFACE))
+                    .border_1()
+                    .border_color(rgb(if is_attention {
+                        appearance::BORDER_WARN
+                    } else {
+                        appearance::BORDER
+                    }))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .v_flex()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .text_size(px(14.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(rgb(appearance::TEXT))
+                                            .child(headline),
+                                    )
+                                    .when(!subline.is_empty(), |this| {
+                                        this.child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(rgb(appearance::MUTED))
+                                                .child(subline),
+                                        )
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .when(!is_attention && replacements > 0, |this| {
+                                        this.child(appearance::pill(
+                                            format!("已脱敏 {replacements} 处 IP"),
+                                            Tone::Accent,
+                                        ))
+                                    })
+                                    .child(status_pill),
+                            ),
+                    );
+
+                if is_attention {
+                    card = card.child(
+                        div()
+                            .mt_2()
+                            .pt_2()
+                            .border_t_1()
+                            .border_color(rgb(appearance::BORDER))
+                            .text_size(px(12.))
+                            .text_color(rgb(0xF5C97B))
+                            .child(format!(
+                                "{}  ·  {}",
+                                self.anomaly_headline(row),
+                                row.concise_next_step(now)
+                            )),
+                    );
+                }
+                active_section = active_section.child(card);
+            }
         }
-        for row in active {
-            let identity = &row.identity;
-            let record = row.clone();
+        content = content.child(active_section);
+
+        // Core Question 2: Past Anomalies
+        const PAGE_SIZE: usize = 12;
+        let pages = logs.len().div_ceil(PAGE_SIZE).max(1);
+        let page = self.connections_page.min(pages - 1);
+
+        let mut history_section = div().v_flex().gap_2().mt_2().child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(appearance::TEXT))
+                        .child("过去的异常"),
+                )
+                .child(appearance::pill(logs.len().to_string(), Tone::Neutral)),
+        );
+
+        if logs.is_empty() {
+            history_section = history_section.child(
+                div()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(appearance::SURFACE_SUBTLE))
+                    .border_1()
+                    .border_color(rgb(appearance::BORDER))
+                    .text_size(px(12.))
+                    .text_color(rgb(appearance::MUTED))
+                    .child("暂无异常记录。发生密钥、设备标识拦截或扫描异常时会显示在这里。"),
+            );
+        } else {
+            let mut list_box = div()
+                .v_flex()
+                .rounded_lg()
+                .bg(rgb(appearance::SURFACE))
+                .border_1()
+                .border_color(rgb(appearance::BORDER))
+                .px_4();
+
+            let slice: Vec<_> = logs.iter().skip(page * PAGE_SIZE).take(PAGE_SIZE).collect();
+            let slice_len = slice.len();
+            for (idx, row) in slice.into_iter().enumerate() {
+                let when = sessions::format_timestamp(row.effective_time(), now);
+                let headline = self.anomaly_headline(row);
+                let context = row.anomaly_context();
+
+                list_box = list_box.child(
+                    div()
+                        .flex()
+                        .items_start()
+                        .gap_4()
+                        .py_3()
+                        .when(idx + 1 < slice_len, |this| {
+                            this.border_b_1().border_color(rgb(appearance::BORDER))
+                        })
+                        .child(
+                            div()
+                                .w(px(100.))
+                                .flex_shrink_0()
+                                .pt(px(2.))
+                                .text_size(px(12.))
+                                .text_color(rgb(appearance::MUTED))
+                                .child(when),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .v_flex()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_size(px(13.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(appearance::TEXT))
+                                        .child(headline),
+                                )
+                                .when(!context.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .text_size(px(12.))
+                                            .text_color(rgb(appearance::MUTED))
+                                            .child(context),
+                                    )
+                                }),
+                        ),
+                );
+            }
+            history_section = history_section.child(list_box);
+
+            if pages > 1 {
+                history_section = history_section.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .pt_1()
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(rgb(appearance::MUTED))
+                                .child(format!("第 {} / {} 页", page + 1, pages)),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .child(
+                                    Button::new("log-prev")
+                                        .small()
+                                        .label("上一页")
+                                        .disabled(page == 0)
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.connections_page = page.saturating_sub(1);
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    Button::new("log-next")
+                                        .small()
+                                        .label("下一页")
+                                        .disabled(page + 1 == pages)
+                                        .on_click(cx.listener(move |s, _, _, cx| {
+                                            s.connections_page = page + 1;
+                                            cx.notify();
+                                        })),
+                                ),
+                        ),
+                );
+            }
+        }
+        content = content.child(history_section);
+        content.into_any_element()
+    }
+
+    fn begin_edit(
+        &mut self,
+        index: Option<usize>,
+        default_domain: bool,
+        w: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit = true;
+        self.edit_index = index;
+        let (name, value, is_domain, case_sensitive) = if let Some(i) = index {
+            let d = self.draft.as_ref().unwrap();
+            let r = &d.rows()[i];
+            if rules::simple_domain(r) {
+                (
+                    d.name(r),
+                    r["detector"]["suffixes"][0]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_owned(),
+                    true,
+                    false,
+                )
+            } else {
+                (
+                    d.name(r),
+                    r["detector"]["values"][0].as_str().unwrap_or("").to_owned(),
+                    false,
+                    r["detector"]["caseSensitive"].as_bool().unwrap_or(true),
+                )
+            }
+        } else {
+            (String::new(), String::new(), default_domain, true)
+        };
+        self.edit_is_domain = is_domain;
+        self.edit_case_sensitive = case_sensitive;
+        self.reveal = is_domain;
+        self.name.update(cx, |s, cx| {
+            s.set_value(name, w, cx);
+            s.focus(w, cx);
+        });
+        self.value.update(cx, |s, cx| {
+            s.set_value(value, w, cx);
+            s.set_masked(!is_domain, w, cx);
+        });
+        cx.notify();
+    }
+
+    fn clear_editor(&mut self, w: &mut Window, cx: &mut Context<Self>) {
+        self.edit = false;
+        self.edit_index = None;
+        self.name.update(cx, |s, cx| s.set_value("", w, cx));
+        self.value.update(cx, |s, cx| s.set_value("", w, cx));
+    }
+
+    fn rules_page(&self, cx: &mut Context<Self>) -> AnyElement {
+        let mut content = div().v_flex().gap_4();
+
+        let Some(d) = &self.draft else {
+            return content
+                .child(self.panel(
+                    "规则文件无法加载",
+                    "当前规则 JSON 校验未通过，原文件已保留。",
+                    cx,
+                ))
+                .into_any_element();
+        };
+
+        if !d.is_modern() {
             content = content.child(
                 div()
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap_3()
                     .p_4()
-                    .rounded_md()
+                    .rounded_lg()
                     .bg(rgb(appearance::SURFACE))
+                    .border_1()
+                    .border_color(rgb(appearance::ACCENT))
                     .child(
                         div()
-                            .flex_1()
-                            .min_w_0()
-                            .v_flex()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(15.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(identity.title().to_owned()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(rgb(appearance::MUTED))
-                                    .child(format!(
-                                        "{}  ·  {}{}",
-                                        identity.project_name(),
-                                        identity.agent_name(),
-                                        identity
-                                            .model
-                                            .as_ref()
-                                            .map(|m| format!("  ·  {m}"))
-                                            .unwrap_or_default()
-                                    )),
-                            )
-                            .when(row.schema == 1, |this| {
-                                this.child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(rgb(appearance::MUTED))
-                                        .child("旧版插件未提供会话信息，更新后新建会话可显示。"),
-                                )
-                            }),
+                            .text_size(px(13.))
+                            .text_color(rgb(appearance::TEXT))
+                            .child("当前规则为旧版格式，升级后支持暂停后发新消息恢复与公网 IP 自动脱敏。"),
                     )
-                    .child(appearance::badge("防护已接入", true))
                     .child(
-                        Button::new(SharedString::from(format!("protected-{}", row.session)))
-                            .ghost()
+                        Button::new("upgrade-modern-redact")
+                            .primary()
                             .small()
-                            .label("详情")
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                s.detail = Some(record.clone());
-                                cx.notify();
+                            .label("一键升级")
+                            .disabled(self.busy || self.edit)
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.work(w, cx, |m| {
+                                    let upgraded = m.recovery_draft(true)?;
+                                    m.commit_document(upgraded)
+                                        .map(|doc| Outcome::Saved(doc, "已升级规则格式（新会话生效）"))
+                                });
                             })),
                     ),
             );
         }
-        if dashboard.unconfirmed + dashboard.attention + dashboard.initializing > 0 {
-            content = content.child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(rgb(appearance::MUTED))
-                    .child(format!(
-                        "未计入正在保护：{} 个已阻断或异常 · {} 个连接失去更新 · {} 个初始化中。",
-                        dashboard.attention, dashboard.unconfirmed, dashboard.initializing
-                    )),
-            );
-        }
-        if let Some(d) = &self.detail {
-            let live = self.feed.sessions.contains_key(&d.session);
-            let d = self.feed.sessions.get(&d.session).unwrap_or(d);
-            let identity = d.display_identity(d.has_interception());
-            content = content.child(
-                self.panel(
-                    identity.title().to_owned(),
-                    format!(
-                        "{} · {}",
-                        identity.agent_name(),
-                        identity.project.as_deref().unwrap_or("项目未提供")
-                    ),
-                    cx,
-                )
-                .child(div().text_size(px(12.)).child(format!(
-                    "{} · 插件 {} · 规则版本 {} · {}",
-                    if live {
-                        d.connection_label(now)
-                    } else {
-                        "历史拦截记录"
-                    },
-                    d.plugin_version,
-                    d.rule_version,
-                    sessions::updated_label(d.updated_at, now)
-                )))
-                .child(
-                    div()
-                        .text_size(px(11.))
-                        .text_color(rgb(appearance::MUTED))
-                        .child(format!(
-                            "会话 ID：{}",
-                            identity.host_session_id.as_deref().unwrap_or("旧版未提供")
-                        )),
-                )
-                .child(div().text_size(px(12.)).child(d.recovery_label()))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .child(d.recovery_advice_at(now, live)),
-                )
-                .child(div().text_size(px(12.)).child(d.reason_label()))
-                .when(d.has_interception(), |this| {
-                    this.child(div().text_size(px(12.)).child(format!(
-                        "{} · {}",
-                        self.rule_label(d),
-                        d.action_label()
-                    )))
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(rgb(appearance::MUTED))
-                            .child("记录的是插件拒绝或扣留结果；已执行操作不会撤销。"),
-                    )
-                })
-                .child(
-                    Button::new("overview-close-detail")
-                        .ghost()
-                        .small()
-                        .label("收起详情")
-                        .on_click(cx.listener(|s, _, _, cx| {
-                            s.detail = None;
-                            cx.notify();
-                        })),
-                ),
-            );
-        }
+
+        // Built-in & Local Identity Section
+        let local_status = d.local_identity_status();
         content = content.child(
             div()
                 .flex()
                 .items_center()
                 .justify_between()
-                .mt_4()
                 .child(
                     div()
-                        .text_size(px(16.))
+                        .text_size(px(15.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("拦截历史"),
+                        .text_color(rgb(appearance::TEXT))
+                        .child("防护策略"),
+                )
+                .child(
+                    Button::new("undo-rules")
+                        .ghost()
+                        .icon(IconName::Undo2)
+                        .small()
+                        .label("撤销上次修改")
+                        .disabled(self.busy || self.edit)
+                        .on_click(cx.listener(|s, _, w, cx| {
+                            let baseline = s.draft.as_ref().unwrap().baseline.clone();
+                            s.work(w, cx, move |m| {
+                                let prev = m.previous_document(baseline)?;
+                                m.commit_document(prev).map(Outcome::Undone)
+                            });
+                        })),
+                ),
+        );
+
+        let mut policy_list = div()
+            .v_flex()
+            .rounded_lg()
+            .bg(rgb(appearance::SURFACE))
+            .border_1()
+            .border_color(rgb(appearance::BORDER))
+            .px_4();
+
+        // Row 1: Local Machine Identity
+        policy_list = policy_list.child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .py_3()
+                .border_b_1()
+                .border_color(rgb(appearance::BORDER))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .text_size(px(14.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(appearance::TEXT))
+                                        .child("本机设备与主机名"),
+                                )
+                                .child(match local_status {
+                                    Some((_, count, true)) => {
+                                        appearance::pill(format!("已同步 {count} 项"), Tone::Success)
+                                    }
+                                    Some((_, count, false)) => {
+                                        appearance::pill(format!("已关闭 ({count} 项)"), Tone::Neutral)
+                                    }
+                                    None => appearance::pill("未同步", Tone::Warning),
+                                }),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(rgb(appearance::MUTED))
+                                .child("精确保护本机真实计算机名、序列号与网卡 MAC，不误报代码变量"),
+                        ),
                 )
                 .child(
                     div()
-                        .text_size(px(11.))
-                        .text_color(rgb(appearance::MUTED))
-                        .child(format!("{} 条保留记录", logs.len())),
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Button::new("sync-local-identity")
+                                .small()
+                                .when(local_status.is_none(), |b| b.primary())
+                                .when(local_status.is_some(), |b| b.ghost())
+                                .label(if local_status.is_some() {
+                                    "重新同步"
+                                } else {
+                                    "同步本机标识"
+                                })
+                                .disabled(self.busy || self.edit)
+                                .on_click(cx.listener(|s, _, w, cx| s.sync_identity(w, cx))),
+                        )
+                        .when_some(local_status, |this, (idx, _, enabled)| {
+                            this.child(
+                                Switch::new("toggle-local-identity")
+                                    .accessibility_label("本机设备与主机名")
+                                    .small()
+                                    .checked(enabled)
+                                    .disabled(self.busy || self.edit)
+                                    .on_change(cx.listener(move |s, _, w, cx| {
+                                        if let Some(mut next) = s.draft.clone() {
+                                            next.toggle(idx);
+                                            s.commit_next(next, "已保存（新会话生效）", w, cx);
+                                        }
+                                    })),
+                            )
+                        }),
                 ),
         );
-        if logs.is_empty() {
-            content = content.child(
-                div()
-                    .p_5()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(rgb(appearance::BORDER))
-                    .text_color(rgb(appearance::MUTED))
-                    .child("暂无拦截记录。发生拦截后，会在这里显示所属会话、原因和命中规则。"),
-            );
-        }
-        const PAGE_SIZE: usize = 10;
-        let pages = logs.len().div_ceil(PAGE_SIZE).max(1);
-        let page = self.connections_page.min(pages - 1);
-        for row in logs.iter().skip(page * PAGE_SIZE).take(PAGE_SIZE) {
-            let identity = row.display_identity(true);
-            let record = (*row).clone();
-            let actor = row
-                .interception
-                .as_ref()
-                .and_then(|e| e.agent_type.as_ref())
-                .map(|a| format!(" · 子代理 {a}"))
-                .unwrap_or_else(|| {
-                    if row
-                        .interception
-                        .as_ref()
-                        .is_some_and(|e| e.agent_id.is_some())
-                    {
-                        " · 子代理".into()
-                    } else {
-                        String::new()
-                    }
-                });
-            let tool = row
-                .interception
-                .as_ref()
-                .and_then(|e| e.tool.as_ref())
-                .map(|t| format!(" · {t}"))
-                .unwrap_or_default();
-            let when = if row.blocked_at() > 0 {
-                sessions::updated_label(row.blocked_at(), now).replace("更新", "拦截")
-            } else {
-                "旧版记录 · 时间未提供".into()
-            };
-            content = content.child(
+
+        let ip_redacted = d.ip_output_redacted();
+        let mut rendered_ip = false;
+        let builtin_rows: Vec<_> = d
+            .rows()
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| {
+                let id = r["id"].as_str().unwrap_or("");
+                if id == "identity.environment"
+                    && r["enabled"] == false
+                    && local_status.is_some_and(|(_, c, en)| c > 0 && en)
+                {
+                    return false;
+                }
+                rules::builtin(r).is_some()
+            })
+            .collect();
+
+        for (pos, (i, r)) in builtin_rows.iter().copied().enumerate() {
+            let (title, desc) = rules::builtin(r).unwrap();
+            let id = r["id"].as_str().unwrap_or("");
+            let is_last = pos + 1 == builtin_rows.len();
+
+            if id == "network.address" || id == "network.address.output" {
+                if rendered_ip {
+                    continue;
+                }
+                rendered_ip = true;
+                let enabled = r["enabled"] == true;
+                let ip_title = if r["detector"]["mode"] == "country" {
+                    "中国境内公网 IP"
+                } else {
+                    "公网 IP 地址"
+                };
+                policy_list = policy_list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .py_3()
+                        .border_b_1()
+                        .border_color(rgb(appearance::BORDER))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .v_flex()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_size(px(14.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(appearance::TEXT))
+                                        .child(ip_title),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(appearance::MUTED))
+                                        .child("内网与海外地址自动放行；日志输出默认替换为 [IP_1] 代号"),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .when_some(ip_redacted, |this, is_redacted| {
+                                    this.child(
+                                        Button::new("ip-mode-toggle")
+                                            .ghost()
+                                            .small()
+                                            .label(if is_redacted {
+                                                "当前：自动脱敏"
+                                            } else {
+                                                "当前：直接拦截"
+                                            })
+                                            .disabled(self.busy || self.edit || !enabled)
+                                            .on_click(cx.listener(move |s, _, w, cx| {
+                                                if let Some(mut next) = s.draft.clone() {
+                                                    if next
+                                                        .set_ip_output_redaction(!is_redacted)
+                                                        .is_ok()
+                                                    {
+                                                        s.commit_next(
+                                                            next,
+                                                            "已切换公网 IP 处理方式（新会话生效）",
+                                                            w,
+                                                            cx,
+                                                        );
+                                                    }
+                                                }
+                                            })),
+                                    )
+                                })
+                                .child(
+                                    Switch::new(("rule-toggle", i))
+                                        .accessibility_label(ip_title)
+                                        .small()
+                                        .checked(enabled)
+                                        .disabled(self.busy || self.edit)
+                                        .on_change(cx.listener(move |s, _, w, cx| {
+                                            if let Some(mut next) = s.draft.clone() {
+                                                next.toggle(i);
+                                                s.commit_next(next, "已保存（新会话生效）", w, cx);
+                                            }
+                                        })),
+                                ),
+                        ),
+                );
+                continue;
+            }
+
+            policy_list = policy_list.child(
                 div()
                     .flex()
-                    .items_start()
+                    .items_center()
+                    .justify_between()
                     .gap_3()
-                    .py_4()
-                    .border_b_1()
-                    .border_color(rgb(appearance::BORDER))
-                    .child(
-                        div()
-                            .w(px(112.))
-                            .flex_shrink_0()
-                            .text_size(px(11.))
-                            .text_color(rgb(appearance::MUTED))
-                            .child(when),
-                    )
+                    .py_3()
+                    .when(!is_last, |this| {
+                        this.border_b_1().border_color(rgb(appearance::BORDER))
+                    })
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .v_flex()
-                            .gap_2()
+                            .gap_1()
                             .child(
                                 div()
-                                    .text_size(px(13.))
+                                    .text_size(px(14.))
                                     .font_weight(FontWeight::SEMIBOLD)
-                                    .child(identity.title().to_owned()),
+                                    .text_color(rgb(appearance::TEXT))
+                                    .child(title),
                             )
                             .child(
                                 div()
-                                    .text_size(px(11.))
+                                    .text_size(px(12.))
                                     .text_color(rgb(appearance::MUTED))
-                                    .child(format!(
-                                        "{} · {}{actor}",
-                                        identity.project_name(),
-                                        identity.agent_name()
-                                    )),
-                            )
-                            .child(div().text_size(px(12.)).child(format!(
-                                "{} · {}{tool}",
-                                self.rule_label(row),
-                                row.action_label()
-                            ))),
+                                    .child(desc),
+                            ),
                     )
                     .child(
-                        Button::new(SharedString::from(format!("intercept-{}", row.session)))
-                            .ghost()
+                        Switch::new(("rule-toggle", i))
+                            .accessibility_label(title)
                             .small()
-                            .label("详情")
-                            .on_click(cx.listener(move |s, _, _, cx| {
-                                s.detail = Some(record.clone());
-                                s.scroll.set_offset(point(px(0.), px(0.)));
-                                cx.notify();
+                            .checked(r["enabled"] == true)
+                            .disabled(self.busy || self.edit)
+                            .on_change(cx.listener(move |s, _, w, cx| {
+                                if let Some(mut next) = s.draft.clone() {
+                                    next.toggle(i);
+                                    s.commit_next(next, "已保存（新会话生效）", w, cx);
+                                }
                             })),
                     ),
             );
         }
-        if pages > 1 {
+        content = content.child(policy_list);
+
+        // Custom Terms & Domains Section
+        let custom_rows: Vec<_> = d
+            .rows()
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| rules::custom_editable(r))
+            .collect();
+
+        content = content.child(
+            div()
+                .flex()
+                .justify_between()
+                .items_center()
+                .mt_2()
+                .child(
+                    div()
+                        .text_size(px(15.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(rgb(appearance::TEXT))
+                        .child("自定义词条与域名"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            Button::new("add-exact-rule")
+                                .small()
+                                .icon(IconName::Plus)
+                                .label("添加敏感词")
+                                .disabled(self.busy || self.edit)
+                                .on_click(
+                                    cx.listener(|s, _, w, cx| s.begin_edit(None, false, w, cx)),
+                                ),
+                        )
+                        .child(
+                            Button::new("add-domain-rule")
+                                .small()
+                                .icon(IconName::Plus)
+                                .label("添加域名后缀")
+                                .disabled(self.busy || self.edit)
+                                .on_click(
+                                    cx.listener(|s, _, w, cx| s.begin_edit(None, true, w, cx)),
+                                ),
+                        ),
+                ),
+        );
+
+        if self.edit {
             content = content.child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(div().text_size(px(11.)).child(format!(
-                        "第 {} / {} 页",
-                        page + 1,
-                        pages
-                    )))
+                    .v_flex()
+                    .gap_3()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(appearance::SURFACE))
+                    .border_1()
+                    .border_color(rgb(appearance::ACCENT))
+                    .child(Input::new(&self.name))
+                    .child(Input::new(&self.value))
                     .child(
                         div()
                             .flex()
-                            .gap_2()
+                            .items_center()
+                            .justify_between()
                             .child(
-                                Button::new("log-prev")
-                                    .small()
-                                    .label("上一页")
-                                    .disabled(page == 0)
-                                    .on_click(cx.listener(move |s, _, _, cx| {
-                                        s.connections_page = page.saturating_sub(1);
-                                        cx.notify();
-                                    })),
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .when(!self.edit_is_domain, |this| {
+                                        this.child(
+                                            Button::new("reveal-value")
+                                                .ghost()
+                                                .small()
+                                                .label(if self.reveal {
+                                                    "隐藏内容"
+                                                } else {
+                                                    "显示内容"
+                                                })
+                                                .on_click(cx.listener(|s, _, w, cx| {
+                                                    s.reveal = !s.reveal;
+                                                    s.value.update(cx, |v, cx| {
+                                                        v.set_masked(!s.reveal, w, cx)
+                                                    });
+                                                    cx.notify();
+                                                })),
+                                        )
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .items_center()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .text_size(px(12.))
+                                                        .text_color(rgb(appearance::MUTED))
+                                                        .child("区分大小写"),
+                                                )
+                                                .child(
+                                                    Switch::new("edit-case-sensitive")
+                                                        .small()
+                                                        .checked(self.edit_case_sensitive)
+                                                        .on_change(cx.listener(|s, _, _, cx| {
+                                                            s.edit_case_sensitive =
+                                                                !s.edit_case_sensitive;
+                                                            cx.notify();
+                                                        })),
+                                                ),
+                                        )
+                                    })
+                                    .when(self.edit_is_domain, |this| {
+                                        this.child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(rgb(appearance::MUTED))
+                                                .child("如 corp.example.com（自动匹配所有子域名）"),
+                                        )
+                                    }),
                             )
                             .child(
-                                Button::new("log-next")
-                                    .small()
-                                    .label("下一页")
-                                    .disabled(page + 1 == pages)
-                                    .on_click(cx.listener(move |s, _, _, cx| {
-                                        s.connections_page = page + 1;
-                                        cx.notify();
-                                    })),
+                                div()
+                                    .flex()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("cancel-editor")
+                                            .ghost()
+                                            .small()
+                                            .label("取消")
+                                            .on_click(cx.listener(|s, _, w, cx| {
+                                                s.clear_editor(w, cx);
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("save-custom-rule")
+                                            .primary()
+                                            .small()
+                                            .label("保存")
+                                            .disabled(self.busy)
+                                            .on_click(cx.listener(|s, _, w, cx| {
+                                                let Some(mut next) = s.draft.clone() else {
+                                                    return;
+                                                };
+                                                let res = next.edit_custom(
+                                                    s.edit_index,
+                                                    s.name.read(cx).value().to_string(),
+                                                    s.value.read(cx).value().to_string(),
+                                                    s.edit_is_domain,
+                                                    s.edit_case_sensitive,
+                                                );
+                                                match res {
+                                                    Ok(()) => {
+                                                        s.clear_editor(w, cx);
+                                                        s.commit_next(
+                                                            next,
+                                                            "已保存自定义规则（新会话生效）",
+                                                            w,
+                                                            cx,
+                                                        );
+                                                    }
+                                                    Err(e) => {
+                                                        s.notice = error_text(e).into();
+                                                        cx.notify();
+                                                    }
+                                                }
+                                            })),
+                                    ),
                             ),
                     ),
             );
         }
-        content.into_any_element()
+
+        if custom_rows.is_empty() && !self.edit {
+            content = content.child(
+                div()
+                    .p_4()
+                    .rounded_lg()
+                    .bg(rgb(appearance::SURFACE_SUBTLE))
+                    .border_1()
+                    .border_color(rgb(appearance::BORDER))
+                    .text_size(px(12.))
+                    .text_color(rgb(appearance::MUTED))
+                    .child("暂未添加自定义词条或内网域名。"),
+            );
+        } else if !custom_rows.is_empty() {
+            let mut custom_box = div()
+                .v_flex()
+                .rounded_lg()
+                .bg(rgb(appearance::SURFACE))
+                .border_1()
+                .border_color(rgb(appearance::BORDER))
+                .px_4();
+            let count = custom_rows.len();
+            for (pos, (i, r)) in custom_rows.into_iter().enumerate() {
+                let is_domain = rules::simple_domain(r);
+                let rule_title = d.name(r);
+                let subtitle = if is_domain {
+                    format!(
+                        "域名后缀：{}",
+                        r["detector"]["suffixes"][0].as_str().unwrap_or("")
+                    )
+                } else {
+                    "精确敏感词（内容已隐藏）".into()
+                };
+                custom_box = custom_box.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_3()
+                        .py_3()
+                        .when(pos + 1 < count, |this| {
+                            this.border_b_1().border_color(rgb(appearance::BORDER))
+                        })
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .v_flex()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .text_size(px(14.))
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .text_color(rgb(appearance::TEXT))
+                                        .child(rule_title.clone()),
+                                )
+                                .child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(rgb(appearance::MUTED))
+                                        .child(subtitle),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    Switch::new(("custom-toggle", i))
+                                        .accessibility_label(rule_title)
+                                        .small()
+                                        .checked(r["enabled"] == true)
+                                        .disabled(self.busy || self.edit)
+                                        .on_change(cx.listener(move |s, _, w, cx| {
+                                            if let Some(mut next) = s.draft.clone() {
+                                                next.toggle(i);
+                                                s.commit_next(next, "已保存（新会话生效）", w, cx);
+                                            }
+                                        })),
+                                )
+                                .child(
+                                    Button::new(("rule-edit", i))
+                                        .ghost()
+                                        .small()
+                                        .label("编辑")
+                                        .disabled(self.busy || self.edit)
+                                        .on_click(cx.listener(move |s, _, w, cx| {
+                                            s.begin_edit(Some(i), is_domain, w, cx)
+                                        })),
+                                )
+                                .child(
+                                    Button::new(("rule-delete", i))
+                                        .ghost()
+                                        .small()
+                                        .label("删除")
+                                        .disabled(self.busy || self.edit)
+                                        .on_click(cx.listener(move |s, _, w, cx| {
+                                            if let Some(mut next) = s.draft.clone() {
+                                                next.remove(i);
+                                                s.commit_next(
+                                                    next,
+                                                    "已删除（可点击右上角撤销）",
+                                                    w,
+                                                    cx,
+                                                );
+                                            }
+                                        })),
+                                ),
+                        ),
+                );
+            }
+            content = content.child(custom_box);
+        }
+
+        // Compact bottom rule tester (1 clean row)
+        let has_input = !self.sandbox.read(cx).value().trim().is_empty();
+        let mut tester = div()
+            .v_flex()
+            .gap_2()
+            .mt_2()
+            .p_4()
+            .rounded_lg()
+            .bg(rgb(appearance::SURFACE))
+            .border_1()
+            .border_color(rgb(appearance::BORDER))
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(rgb(appearance::TEXT))
+                    .child("测试规则"),
+            )
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(div().flex_1().child(Input::new(&self.sandbox)))
+                    .child(
+                        Button::new("sandbox-run")
+                            .primary()
+                            .small()
+                            .label(if self.sandbox_running { "检测中" } else { "检测" })
+                            .disabled(self.sandbox_running)
+                            .on_click(cx.listener(|s, _, w, cx| s.run_sandbox(w, cx))),
+                    )
+                    .when(has_input, |this| {
+                        this.child(
+                            Button::new("sandbox-clear")
+                                .ghost()
+                                .small()
+                                .label("清空")
+                                .on_click(cx.listener(|s, _, w, cx| {
+                                    s.sandbox.update(cx, |input, cx| input.set_value("", w, cx));
+                                    s.sandbox_result = None;
+                                    cx.notify();
+                                })),
+                        )
+                    }),
+            );
+
+        if let Some(result) = &self.sandbox_result {
+            let row = match result {
+                Ok(res) if res.kind == "pass" => div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pt_1()
+                    .child(appearance::pill("放行", Tone::Success))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(rgb(appearance::MUTED))
+                            .child("未命中任何规则"),
+                    ),
+                Ok(res) if res.kind == "redacted" => div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .pt_1()
+                    .child(appearance::pill("自动脱敏", Tone::Accent))
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(rgb(appearance::MUTED))
+                            .child(format!("将替换 {} 处公网 IP 为 [IP_1] 后放行", res.count)),
+                    ),
+                Ok(res) => {
+                    let rule_name = self.rule_id_label(res.rule.as_deref().unwrap_or(""));
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .pt_1()
+                        .child(appearance::pill("拦截", Tone::Warning))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(rgb(appearance::TEXT))
+                                .child(format!("命中「{rule_name}」，结果将扣留在本机")),
+                        )
+                }
+                Err(code) => div()
+                    .pt_1()
+                    .text_size(px(12.))
+                    .text_color(rgb(0xF5C97B))
+                    .child(error_text(code)),
+            };
+            tester = tester.child(row);
+        }
+
+        content.child(tester).into_any_element()
     }
+
     fn tools(&self, cx: &mut Context<Self>) -> AnyElement {
         let h = self.harnesses.first();
         let installed = h.is_some_and(|h| h.installed);
         let enabled = h.and_then(|h| h.enabled);
         let disabled = self.busy || self.manager.demo || !h.is_some_and(|h| h.found && h.query_ok);
-        let (label, action) = if !installed {
-            ("安装插件", "install")
+        let needs_upgrade = installed
+            && h.is_some_and(|h| {
+                backend::version(&h.plugin).ok() < backend::version(backend::BUNDLED_VERSION).ok()
+            });
+
+        let (state_label, state_tone) = if !installed {
+            ("未安装", Tone::Warning)
         } else if enabled == Some(false) {
-            ("启用插件", "enable")
+            ("已禁用", Tone::Warning)
+        } else if needs_upgrade {
+            ("可升级", Tone::Accent)
         } else {
-            ("更新内置插件", "update")
+            ("已启用", Tone::Success)
         };
-        let state = if !installed {
-            "未安装"
+
+        let primary_button = if !installed {
+            Button::new("install-primary")
+                .primary()
+                .small()
+                .label("安装并启用")
+                .disabled(disabled)
+                .on_click(cx.listener(|s, _, w, cx| s.action("install", w, cx)))
         } else if enabled == Some(false) {
-            "已禁用"
+            Button::new("install-primary")
+                .primary()
+                .small()
+                .label("启用插件")
+                .disabled(disabled)
+                .on_click(cx.listener(|s, _, w, cx| s.action("enable", w, cx)))
+        } else if needs_upgrade {
+            Button::new("install-primary")
+                .primary()
+                .small()
+                .label(format!("升级至 v{}", backend::BUNDLED_VERSION))
+                .disabled(disabled)
+                .on_click(cx.listener(|s, _, w, cx| s.action("update", w, cx)))
         } else {
-            "已安装"
+            Button::new("install-primary")
+                .small()
+                .label("重新同步")
+                .disabled(disabled)
+                .on_click(cx.listener(|s, _, w, cx| s.action("update", w, cx)))
         };
+
         let mut content = div()
             .v_flex()
-            .gap_5()
+            .gap_4()
             .child(
                 div()
                     .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(appearance::badge("1 个支持的工具", false))
+                    .justify_end()
+                    .gap_2()
                     .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(
-                                Button::new("choose-program")
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::FolderOpen)
-                                    .label("选择程序")
-                                    .disabled(self.busy)
-                                    .on_click(cx.listener(|s, _, w, cx| s.select_program(w, cx))),
-                            )
-                            .child(
-                                Button::new("detect")
-                                    .small()
-                                    .icon(IconName::RefreshCw)
-                                    .label("重新检测")
-                                    .disabled(self.busy)
-                                    .on_click(cx.listener(|s, _, w, cx| {
-                                        s.work(w, cx, |m| Ok(Outcome::Detected(m.detect())))
-                                    })),
-                            ),
+                        Button::new("choose-program")
+                            .ghost()
+                            .small()
+                            .icon(IconName::FolderOpen)
+                            .label("选择程序")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|s, _, w, cx| s.select_program(w, cx))),
+                    )
+                    .child(
+                        Button::new("detect")
+                            .small()
+                            .icon(IconName::RefreshCw)
+                            .label("重新检测")
+                            .disabled(self.busy)
+                            .on_click(cx.listener(|s, _, w, cx| {
+                                s.work(w, cx, |m| Ok(Outcome::Detected(m.detect())))
+                            })),
                     ),
             )
             .child(
@@ -754,59 +1695,27 @@ impl Desktop {
                             .p_5()
                             .child(
                                 div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
+                                    .v_flex()
+                                    .gap_1()
                                     .child(
                                         div()
-                                            .size(px(38.))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .rounded_lg()
-                                            .bg(rgb(0x332923))
-                                            .child(
-                                                Icon::new(IconName::SquareTerminal)
-                                                    .size(px(20.))
-                                                    .text_color(rgb(0xD5A282)),
-                                            ),
+                                            .text_size(px(15.))
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .text_color(rgb(appearance::TEXT))
+                                            .child("Claude Code"),
                                     )
                                     .child(
                                         div()
-                                            .v_flex()
-                                            .gap_1()
-                                            .child(
-                                                div()
-                                                    .text_size(px(15.))
-                                                    .font_weight(FontWeight::SEMIBOLD)
-                                                    .child("Claude Code"),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_size(px(12.))
-                                                    .text_color(rgb(appearance::MUTED))
-                                                    .child(format!(
-                                                        "程序版本 {}",
-                                                        h.map(|h| h.version.as_str())
-                                                            .unwrap_or("检测中")
-                                                    )),
-                                            ),
+                                            .text_size(px(12.))
+                                            .text_color(rgb(appearance::MUTED))
+                                            .child(format!(
+                                                "CLI {}  ·  插件 v{}",
+                                                h.map(|h| h.version.as_str()).unwrap_or("检测中"),
+                                                h.map(|h| h.plugin.as_str()).unwrap_or("检测中")
+                                            )),
                                     ),
                             )
-                            .child(appearance::badge(state, enabled == Some(true))),
-                    )
-                    .child(
-                        div()
-                            .v_flex()
-                            .px_5()
-                            .pb_3()
-                            .child(self.property(
-                                "插件版本",
-                                h.map(|h| h.plugin.as_str()).unwrap_or("检测中"),
-                            ))
-                            .child(self.property("内置版本", backend::BUNDLED_VERSION))
-                            .child(self.property("安装范围", "当前用户"))
-                            .child(self.property("生效方式", "新会话加载 · 已有会话以概览页为准")),
+                            .child(appearance::pill(state_label, state_tone)),
                     )
                     .child(
                         div()
@@ -817,26 +1726,29 @@ impl Desktop {
                             .py_3()
                             .border_t_1()
                             .border_color(rgb(appearance::BORDER))
-                            .child(
-                                Button::new("install-primary")
-                                    .primary()
-                                    .small()
-                                    .icon(IconName::Plus)
-                                    .label(label)
-                                    .disabled(disabled)
-                                    .on_click(
-                                        cx.listener(move |s, _, w, cx| s.action(action, w, cx)),
-                                    ),
-                            )
+                            .child(primary_button)
                             .child(
                                 div()
                                     .flex()
-                                    .gap_1()
+                                    .gap_2()
+                                    .child(
+                                        Button::new("check-update")
+                                            .ghost()
+                                            .small()
+                                            .label("检查更新")
+                                            .disabled(self.busy || self.manager.demo)
+                                            .on_click(cx.listener(|s, _, w, cx| {
+                                                s.work(w, cx, |_| {
+                                                    updates::Release::check()
+                                                        .map(Outcome::UpdateChecked)
+                                                })
+                                            })),
+                                    )
                                     .child(
                                         Button::new("disable")
                                             .ghost()
                                             .small()
-                                            .label("禁用插件")
+                                            .label("禁用")
                                             .disabled(
                                                 disabled || !installed || enabled == Some(false),
                                             )
@@ -858,56 +1770,13 @@ impl Desktop {
                             ),
                     ),
             );
-        if !h.is_some_and(|h| ["2.1.312", "2.1.325"].contains(&h.version.as_str()))
-            && !self.manager.demo
-        {
-            content = content.child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .text_size(px(12.))
-                    .text_color(rgb(0xC9AC77))
-                    .child(appearance::icon(IconName::CircleAlert))
-                    .child("此程序版本尚未完成兼容性验收。"),
-            );
-        }
-        content = content.child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .py_3()
-                .border_b_1()
-                .border_color(rgb(appearance::BORDER))
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .items_center()
-                        .child(appearance::icon(IconName::RefreshCw))
-                        .child(appearance::section(
-                            "插件更新",
-                            "手动检查项目发布源，更新时保留本机规则。",
-                        )),
-                )
-                .child(
-                    Button::new("check-update")
-                        .small()
-                        .label("检查更新")
-                        .disabled(self.busy || self.manager.demo)
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            s.work(w, cx, |_| {
-                                updates::Release::check().map(Outcome::UpdateChecked)
-                            })
-                        })),
-                ),
-        );
+
         if let Some(release) = self.release.clone() {
             content = content.child(
                 Button::new("apply-update")
                     .primary()
                     .small()
-                    .label(format!("下载并更新至 {}", release.version))
+                    .label(format!("下载并更新至 v{}", release.version))
                     .disabled(disabled || !installed)
                     .on_click(cx.listener(move |s, _, w, cx| {
                         let release = release.clone();
@@ -920,492 +1789,65 @@ impl Desktop {
         }
         if self.confirm_uninstall {
             content = content.child(
-                self.panel(
-                    "卸载插件？",
-                    "移除当前用户的插件注册，保留规则和其他插件；已有会话不自动退出。",
-                    cx,
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            Button::new("confirm-uninstall")
-                                .small()
-                                .label("卸载并保留规则")
-                                .on_click(cx.listener(|s, _, w, cx| s.action("uninstall", w, cx))),
-                        )
-                        .child(
-                            Button::new("cancel-uninstall")
-                                .ghost()
-                                .small()
-                                .label("取消")
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.confirm_uninstall = false;
-                                    cx.notify();
-                                })),
-                        ),
-                ),
-            );
-        }
-        content.child(div().flex().gap_2().text_size(px(11.)).text_color(rgb(appearance::MUTED)).child(appearance::icon(IconName::Info)).child("仅覆盖本机接入的 Claude Code。普通 Chat、Cowork、远程与 WSL 会话不在当前范围。更新安装不等于已有会话已生效。")).into_any_element()
-    }
-    fn property(&self, key: &str, value: &str) -> Div {
-        div()
-            .flex()
-            .justify_between()
-            .gap_4()
-            .py_2()
-            .text_size(px(12.))
-            .child(
-                div()
-                    .text_color(rgb(appearance::MUTED))
-                    .child(key.to_owned()),
-            )
-            .child(value.to_owned())
-    }
-    fn begin_edit(&mut self, index: Option<usize>, w: &mut Window, cx: &mut Context<Self>) {
-        self.scroll.set_offset(point(px(0.), px(0.)));
-        self.edit = true;
-        self.edit_index = index;
-        self.reveal = false;
-        let (name, value) = if let Some(i) = index {
-            let d = self.draft.as_ref().unwrap();
-            let r = &d.rows()[i];
-            (
-                d.name(r),
-                r["detector"]["values"][0].as_str().unwrap_or("").to_owned(),
-            )
-        } else {
-            (String::new(), String::new())
-        };
-        self.name.update(cx, |s, cx| {
-            s.set_value(name, w, cx);
-            s.focus(w, cx);
-        });
-        self.value.update(cx, |s, cx| {
-            s.set_value(value, w, cx);
-            s.set_masked(true, w, cx);
-        });
-        cx.notify();
-    }
-    fn clear_editor(&mut self, w: &mut Window, cx: &mut Context<Self>) {
-        self.edit = false;
-        self.name.update(cx, |s, cx| s.set_value("", w, cx));
-        self.value.update(cx, |s, cx| s.set_value("", w, cx));
-    }
-    fn rules_page(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut content = div().v_flex().gap_2().child(
-            div()
-                .flex()
-                .gap_2()
-                .child(
-                    Button::new("reload-rules")
-                        .icon(IconName::RefreshCw)
-                        .small()
-                        .label("重新读取")
-                        .disabled(self.busy)
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            if s.dirty() || s.edit {
-                                s.confirm_discard = true;
-                                s.scroll.set_offset(point(px(0.), px(0.)));
-                                cx.notify();
-                            } else {
-                                s.work(w, cx, |m| m.document().map(Outcome::Loaded));
-                            }
-                        })),
-                )
-                .child(
-                    Button::new("restore-rules")
-                        .icon(IconName::Undo2)
-                        .small()
-                        .label("恢复上一版到草稿")
-                        .disabled(self.busy || self.edit || self.draft.is_none())
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            let baseline = s.draft.as_ref().unwrap().baseline.clone();
-                            s.work(w, cx, move |m| {
-                                m.previous_document(baseline).map(Outcome::Previous)
-                            });
-                        })),
-                ),
-        );
-        content = content.child(
-            div()
-                .flex()
-                .gap_2()
-                .child(
-                    Button::new("recovery-draft")
-                        .small()
-                        .label("生成安全恢复草稿")
-                        .disabled(self.busy || self.dirty() || self.edit || self.draft.is_none())
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            s.work(w, cx, |m| m.recovery_draft(false).map(Outcome::Previous));
-                        })),
-                )
-                .child(
-                    Button::new("redaction-draft")
-                        .small()
-                        .label("生成恢复与 IP 脱敏草稿")
-                        .disabled(self.busy || self.dirty() || self.edit || self.draft.is_none())
-                        .on_click(cx.listener(|s, _, w, cx| {
-                            s.work(w, cx, |m| m.recovery_draft(true).map(Outcome::Previous));
-                        })),
-                ),
-        );
-        let Some(d) = &self.draft else {
-            return content
-                .child(self.panel(
-                    "规则尚未读取",
-                    "配置无效时保留原文件；请修复后重新读取。",
-                    cx,
-                ))
-                .into_any_element();
-        };
-        content = content.child(
-            div()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(format!(
-                    "已保存 {} · {}",
-                    self.saved
-                        .as_ref()
-                        .map(|d| appearance::revision(&d.version()))
-                        .unwrap_or_default(),
-                    if self.dirty() {
-                        "有未保存更改"
-                    } else {
-                        "所有更改已保存"
-                    }
-                )),
-        );
-        if self.confirm_discard {
-            content = content.child(
-                self.panel("放弃草稿并重新读取？", "尚未保存的修改将丢失。", cx)
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .child(Button::new("confirm-discard").label("放弃并读取").on_click(
-                                cx.listener(|s, _, w, cx| {
-                                    s.confirm_discard = false;
-                                    s.clear_editor(w, cx);
-                                    s.work(w, cx, |m| m.document().map(Outcome::Loaded));
-                                }),
-                            ))
-                            .child(Button::new("cancel-discard").label("取消").on_click(
-                                cx.listener(|s, _, _, cx| {
-                                    s.confirm_discard = false;
-                                    cx.notify();
-                                }),
-                            )),
-                    ),
-            );
-        }
-        if self.edit {
-            content =
-                content.child(
-                    self.panel(
-                        if self.edit_index.is_some() {
-                            "编辑规则"
-                        } else {
-                            "添加规则"
-                        },
-                        "每条规则一个精确值。名称和敏感文本只保存在本机。",
-                        cx,
-                    )
-                    .child(div().text_sm().child("名称"))
-                    .child(Input::new(&self.name))
-                    .child(div().text_sm().child("敏感文本"))
-                    .child(Input::new(&self.value))
+                self.panel("确认卸载插件？", "移除插件注册，保留本地规则文件。", cx)
                     .child(
                         div()
                             .flex()
                             .gap_2()
                             .child(
-                                Button::new("reveal-value")
-                                    .label(if self.reveal {
-                                        "隐藏文本"
-                                    } else {
-                                        "显示文本"
-                                    })
-                                    .on_click(cx.listener(|s, _, w, cx| {
-                                        s.reveal = !s.reveal;
-                                        s.value.update(cx, |v, cx| v.set_masked(!s.reveal, w, cx));
+                                Button::new("confirm-uninstall")
+                                    .small()
+                                    .label("确认卸载")
+                                    .on_click(
+                                        cx.listener(|s, _, w, cx| s.action("uninstall", w, cx)),
+                                    ),
+                            )
+                            .child(
+                                Button::new("cancel-uninstall")
+                                    .ghost()
+                                    .small()
+                                    .label("取消")
+                                    .on_click(cx.listener(|s, _, _, cx| {
+                                        s.confirm_uninstall = false;
                                         cx.notify();
                                     })),
-                            )
-                            .child(
-                                Button::new("add-draft")
-                                    .primary()
-                                    .label("加入草稿")
-                                    .on_click(cx.listener(|s, _, w, cx| {
-                                        let result = s.draft.as_mut().unwrap().edit(
-                                            s.edit_index,
-                                            s.name.read(cx).value().to_string(),
-                                            s.value.read(cx).value().to_string(),
-                                        );
-                                        match result {
-                                            Ok(()) => s.clear_editor(w, cx),
-                                            Err(e) => s.notice = error_text(e).into(),
-                                        }
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(Button::new("cancel-editor").label("取消").on_click(
-                                cx.listener(|s, _, w, cx| {
-                                    s.clear_editor(w, cx);
-                                    cx.notify();
-                                }),
-                            )),
-                    ),
-                );
-        }
-        for (title, kind) in [
-            ("内置规则", 0),
-            ("自定义敏感文本", 1),
-            ("其他已有规则（只读保留）", 2),
-        ] {
-            let rows: Vec<_> = d
-                .rows()
-                .iter()
-                .enumerate()
-                .filter(|(_, r)| match kind {
-                    0 => rules::builtin(r).is_some(),
-                    1 => rules::simple_exact(r),
-                    _ => !rules::editable(r),
-                })
-                .collect();
-            if rows.is_empty() && kind == 2 {
-                continue;
-            }
-            content = content.child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .mt_4()
-                    .mb_1()
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(title),
-                            )
-                            .child(appearance::badge(format!("{}", rows.len()), false)),
-                    )
-                    .when(kind == 1, |v| {
-                        v.child(
-                            Button::new("add-rule")
-                                .icon(IconName::Plus)
-                                .small()
-                                .label("添加规则")
-                                .disabled(self.busy || self.edit)
-                                .on_click(cx.listener(|s, _, w, cx| s.begin_edit(None, w, cx))),
-                        )
-                    }),
-            );
-            if rows.is_empty() && kind == 1 {
-                content = content.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_3()
-                        .p_4()
-                        .rounded_md()
-                        .border_1()
-                        .border_color(rgb(appearance::BORDER))
-                        .child(appearance::icon(IconName::CaseSensitive))
-                        .child(
-                            div()
-                                .v_flex()
-                                .gap_1()
-                                .child(div().text_size(px(12.)).child("尚未添加敏感文本"))
-                                .child(
-                                    div()
-                                        .text_size(px(11.))
-                                        .text_color(rgb(appearance::MUTED))
-                                        .child("添加自定义精确文本，命中后阻止继续处理。"),
-                                ),
-                        ),
-                );
-            }
-            for (i, r) in rows {
-                let scope = r["sources"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .filter_map(|v| v.as_str())
-                    .map(|s| match s {
-                        "tool.input" => "工具参数",
-                        "tool.result" => "工具结果",
-                        "user.prompt" => "用户输入",
-                        _ => "上下文",
-                    })
-                    .collect::<Vec<_>>()
-                    .join("、");
-                let detail = if let Some((_, s)) = rules::builtin(r) {
-                    format!("{s} · {scope}")
-                } else if kind == 1 {
-                    format!("精确匹配，区分大小写 · 内容已隐藏 · {scope}")
-                } else {
-                    format!(
-                        "动作 {} · {scope} · 保留原始配置",
-                        r["action"].as_str().unwrap_or("未知")
-                    )
-                };
-                let row = div()
-                    .flex()
-                    .justify_between()
-                    .items_center()
-                    .gap_3()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(cx.theme().border)
-                    .child(
-                        div()
-                            .size(px(30.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_md()
-                            .bg(rgb(appearance::SURFACE))
-                            .child(appearance::icon(if kind == 1 {
-                                IconName::CaseSensitive
-                            } else {
-                                IconName::Settings2
-                            })),
-                    )
-                    .child(
-                        div()
-                            .v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(d.name(r))
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child(detail),
                             ),
-                    )
-                    .child(
-                        Switch::new(("rule-toggle", i))
-                            .accessibility_label(d.name(r))
-                            .small()
-                            .checked(r["enabled"] == true)
-                            .disabled(self.busy || self.edit || kind == 2)
-                            .on_change(cx.listener(move |s, _, _, cx| {
-                                s.draft.as_mut().unwrap().toggle(i);
-                                cx.notify();
-                            })),
-                    )
-                    .when(kind == 1, |v| {
-                        v.child(
-                            Button::new(("rule-edit", i))
-                                .ghost()
-                                .small()
-                                .label("编辑")
-                                .disabled(self.busy || self.edit)
-                                .on_click(
-                                    cx.listener(move |s, _, w, cx| s.begin_edit(Some(i), w, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new(("rule-delete", i))
-                                .ghost()
-                                .small()
-                                .label("删除")
-                                .disabled(self.busy || self.edit)
-                                .on_click(cx.listener(move |s, _, _, cx| {
-                                    s.draft.as_mut().unwrap().remove(i);
-                                    cx.notify();
-                                })),
-                        )
-                    });
-                content = content.child(row);
-            }
+                    ),
+            );
         }
-        let summary = self
-            .saved
-            .as_ref()
-            .map(|old| d.summary(old))
-            .unwrap_or_default();
-        content
-            .child(
-                self.panel(
-                    "更改应用于新会话",
-                    if self.dirty() {
-                        summary
-                    } else {
-                        "更改只在新会话加载；不会解除已阻断会话。".into()
-                    },
-                    cx,
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_2()
-                        .child(
-                            Button::new("discard")
-                                .label("放弃更改")
-                                .disabled(self.busy || !self.dirty() || self.edit)
-                                .on_click(cx.listener(|s, _, _, cx| {
-                                    s.draft = s.saved.clone();
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("save")
-                                .icon(IconName::Check)
-                                .small()
-                                .primary()
-                                .label("保存更改")
-                                .disabled(self.busy || !self.dirty() || self.edit)
-                                .on_click(cx.listener(|s, _, w, cx| {
-                                    let d = s.draft.clone().unwrap();
-                                    s.work(w, cx, move |m| {
-                                        m.commit_document(d).map(Outcome::Saved)
-                                    });
-                                })),
-                        ),
-                ),
-            )
-            .into_any_element()
+        content.into_any_element()
     }
 }
+
 fn error_text(code: &str) -> &'static str {
     match code {
-        "UPDATE_FEED_UNAVAILABLE" => "无法连接项目发布源，当前插件保持不变。请检查网络后重试。",
-        "UPDATE_PACKAGE_UNPUBLISHED" => "发布源尚未提供桌面可用的插件包，可继续使用内置版本。",
+        "UPDATE_FEED_UNAVAILABLE" => "无法连接发布源，请检查网络后重试",
+        "UPDATE_PACKAGE_UNPUBLISHED" => "发布源暂无可用插件包",
         "UPDATE_DIGEST_REQUIRED"
         | "UPDATE_DIGEST_MISMATCH"
         | "UPDATE_PACKAGE_INVALID"
-        | "UPDATE_FEED_INVALID" => "更新包来源或完整性校验未通过，未执行安装。",
-        "DESKTOP_UPDATE_REQUIRED" => "此插件包含检测引擎变更，请先升级桌面应用以保持规则校验一致。",
-        "UPDATE_DOWNLOAD_FAILED" => "更新包下载未完成，当前插件保持不变。",
-        "RULES_CHANGED_EXTERNALLY" => "规则已被其他程序修改。草稿仍保留，请重新读取后再编辑。",
-        "RECOVERY_REQUIRES_UPDATE" => "请先在安装管理中更新插件，再保存恢复与脱敏配置。",
-        "ANOTHER_OPERATION_RUNNING" => "另一个管理操作正在进行，请稍后重试。",
-        "RULE_FIELDS_REQUIRED" => "请填写名称和非空文本；名称最多 60 字，文本最多 8 KiB。",
-        "RULE_CONFIG_REJECTED" => "规则校验未通过，原配置未被替换。",
-        "NO_PREVIOUS_RULES" | "FILE_UNAVAILABLE" => "无法读取文件或尚无上一版，请重新读取配置。",
-        "CLAUDE_NOT_FOUND" | "COMMAND_UNAVAILABLE" => "未找到可执行程序，请选择 Claude Code 程序。",
-        "NOT_CLAUDE_CODE" => "所选程序未返回 Claude Code 版本信息。",
-        "INSTALL_VERIFICATION_FAILED" => {
-            "命令完成后未能确认安装状态，请重新检测。不要将此状态视为已安装。"
-        }
-        "BUNDLED_VERSION_OLDER" => "已安装版本比应用内置版本更新，已拒绝降级。",
-        "COMMAND_TIMEOUT" => "程序执行超时，请重新检测安装状态。",
-        "COMMAND_FAILED" => "插件命令失败。已尝试恢复安装源文件，宿主注册状态请重新检测。",
-        _ => "操作未完成，草稿保留。请重试或重新检测；原始错误内容不显示。",
+        | "UPDATE_FEED_INVALID" => "更新包完整性校验未通过",
+        "DESKTOP_UPDATE_REQUIRED" => "请先升级桌面应用版本",
+        "UPDATE_DOWNLOAD_FAILED" => "更新包下载未完成",
+        "RULES_CHANGED_EXTERNALLY" => "规则文件在外部被修改，正在重新同步",
+        "RECOVERY_REQUIRES_UPDATE" => "请先在「安装」页更新插件版本",
+        "ANOTHER_OPERATION_RUNNING" => "另一个操作正在进行中",
+        "RULE_FIELDS_REQUIRED" => "请填写备注名称和需要保护的内容",
+        "INVALID_DOMAIN" => "请输入有效的域名后缀，例如 corp.example.com",
+        "LOCAL_IDENTITY_EMPTY" => "未读取到本机设备标识",
+        "RULE_CONFIG_REJECTED" => "规则校验未通过，原配置未变",
+        "NO_PREVIOUS_RULES" | "FILE_UNAVAILABLE" => "没有可撤销的上一版修改",
+        "CLAUDE_NOT_FOUND" | "COMMAND_UNAVAILABLE" => "未找到 Claude Code 可执行程序",
+        "NOT_CLAUDE_CODE" => "所选文件不是 Claude Code 程序",
+        "INSTALL_VERIFICATION_FAILED" => "未能确认插件状态，请点击重新检测",
+        "BUNDLED_VERSION_OLDER" => "已安装版本高于内置版本，未降级",
+        "COMMAND_TIMEOUT" => "命令执行超时，请重试",
+        "COMMAND_FAILED" => "命令执行失败，已回滚源文件",
+        "DEMO_MODE_NO_HARNESS_CHANGES" => "演示模式不修改本机插件",
+        _ => "操作未完成，请重试",
     }
 }
+
 impl Render for Desktop {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.measure && !self.measured {
@@ -1426,13 +1868,8 @@ impl Render for Desktop {
                 Page::Overview,
                 IconName::LayoutDashboard,
             ),
-            (
-                "nav-tools",
-                "安装管理",
-                Page::Tools,
-                IconName::SquareTerminal,
-            ),
-            ("nav-rules", "规则编辑", Page::Rules, IconName::Settings2),
+            ("nav-rules", "规则", Page::Rules, IconName::Settings2),
+            ("nav-tools", "安装", Page::Tools, IconName::SquareTerminal),
         ] {
             let active = self.page == page;
             nav = nav.child(
@@ -1441,7 +1878,6 @@ impl Render for Desktop {
                         s.page = page;
                         if page == Page::Overview {
                             s.connections_page = 0;
-                            s.detail = None;
                         }
                         s.scroll.set_offset(point(px(0.), px(0.)));
                         cx.notify();
@@ -1449,59 +1885,62 @@ impl Render for Desktop {
                 )),
             );
         }
-        let (title, subtitle, glyph) = match self.page {
-            Page::Overview => (
-                "概览",
-                "查看正在保护的会话，以及曾经发生的拦截。",
-                IconName::LayoutDashboard,
-            ),
-            Page::Tools => (
-                "安装管理",
-                "连接本机编程工具，管理插件与更新。",
-                IconName::SquareTerminal,
-            ),
-            Page::Rules => (
-                "规则编辑",
-                "定义需要留在本机的信息。更改仅在新会话生效。",
-                IconName::Settings2,
-            ),
+        let (title, glyph) = match self.page {
+            Page::Overview => ("概览", IconName::LayoutDashboard),
+            Page::Rules => ("规则", IconName::Settings2),
+            Page::Tools => ("安装", IconName::SquareTerminal),
         };
         let page = match self.page {
             Page::Overview => self.overview(cx),
-            Page::Tools => self.tools(cx),
             Page::Rules => self.rules_page(cx),
+            Page::Tools => self.tools(cx),
         };
         let mut body = div().v_flex().gap_4();
         if self.about {
-            body=body.child(self.panel("关于 Agent Safeguard",format!("桌面 {} · 内置插件 {} · 代码 MIT / GeoIP 数据 CC BY 4.0（DB-IP）。检测在本机执行，退出窗口不停止已加载插件。",env!("CARGO_PKG_VERSION"),backend::BUNDLED_VERSION),cx).child(Button::new("open-data").label("打开本地数据目录").on_click(cx.listener(|s,_,_,cx|cx.reveal_path(&s.manager.base())))));
+            body = body.child(
+                self.panel(
+                    "Agent Safeguard",
+                    format!(
+                        "桌面 v{} · 插件 v{} · 所有检测均在本机离线完成，关闭窗口不影响后台防护。",
+                        env!("CARGO_PKG_VERSION"),
+                        backend::BUNDLED_VERSION
+                    ),
+                    cx,
+                )
+                .child(
+                    Button::new("open-data")
+                        .small()
+                        .label("打开本地数据目录")
+                        .on_click(cx.listener(|s, _, _, cx| cx.reveal_path(&s.manager.base()))),
+                ),
+            );
         }
         if self.close_pending {
-            body =
-                body.child(
-                    self.panel(
-                        "仍有未完成操作或未保存更改",
-                        "返回规则保存，或者明确放弃后关闭。",
-                        cx,
-                    )
+            body = body.child(
+                self.panel("正在编辑的内容尚未保存", "可返回保存，或放弃输入并关闭窗口。", cx)
                     .child(
                         div()
                             .flex()
                             .gap_2()
-                            .child(Button::new("cancel-close").label("继续编辑").on_click(
-                                cx.listener(|s, _, _, cx| {
-                                    s.close_pending = false;
-                                    s.page = Page::Rules;
-                                    cx.notify();
-                                }),
-                            ))
+                            .child(
+                                Button::new("cancel-close")
+                                    .small()
+                                    .label("返回")
+                                    .on_click(cx.listener(|s, _, _, cx| {
+                                        s.close_pending = false;
+                                        cx.notify();
+                                    })),
+                            )
                             .child(
                                 Button::new("discard-close")
+                                    .ghost()
+                                    .small()
                                     .label("放弃并关闭")
                                     .disabled(self.busy)
                                     .on_click(cx.listener(|_, _, w, _| w.remove_window())),
                             ),
                     ),
-                );
+            );
         }
         body = body.child(page);
         let content = div()
@@ -1514,7 +1953,7 @@ impl Render for Desktop {
             .text_size(px(13.))
             .child(
                 div()
-                    .w(px(240.))
+                    .w(px(208.))
                     .h_full()
                     .flex_shrink_0()
                     .v_flex()
@@ -1534,7 +1973,7 @@ impl Render for Desktop {
                             .child(
                                 appearance::navigation_item(
                                     "about",
-                                    "帮助与关于",
+                                    "关于",
                                     IconName::Info,
                                     self.about,
                                 )
@@ -1562,26 +2001,8 @@ impl Render for Desktop {
                             .min_h_0()
                             .overflow_y_scroll()
                             .px_8()
-                            .pt_7()
+                            .pt_6()
                             .pb_6()
-                            .child(
-                                div()
-                                    .v_flex()
-                                    .gap_1()
-                                    .mb_6()
-                                    .child(
-                                        div()
-                                            .text_size(px(23.))
-                                            .font_weight(FontWeight::SEMIBOLD)
-                                            .child(title),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_size(px(12.))
-                                            .text_color(rgb(appearance::MUTED))
-                                            .child(subtitle),
-                                    ),
-                            )
                             .child(body),
                     )
                     .child(
@@ -1592,7 +2013,7 @@ impl Render for Desktop {
                             .flex()
                             .items_center()
                             .gap_2()
-                            .px_7()
+                            .px_8()
                             .py_2()
                             .border_t_1()
                             .border_color(rgb(appearance::BORDER))
@@ -1613,7 +2034,7 @@ impl Render for Desktop {
             .text_color(rgb(appearance::TEXT))
             .child(
                 TitleBar::new()
-                    .h(px(52.))
+                    .h(px(48.))
                     .pl_0()
                     .border_b_0()
                     .bg(rgb(appearance::BG))
@@ -1632,7 +2053,7 @@ impl Render for Desktop {
                             .flex()
                             .child(
                                 div()
-                                    .w(px(240.))
+                                    .w(px(208.))
                                     .h_full()
                                     .flex_shrink_0()
                                     .bg(rgb(appearance::SIDEBAR))
@@ -1653,10 +2074,16 @@ impl Render for Desktop {
                                             .items_center()
                                             .gap_2()
                                             .child(appearance::icon(glyph))
-                                            .child(div().text_size(px(13.)).child(title)),
+                                            .child(
+                                                div()
+                                                    .text_size(px(14.))
+                                                    .font_weight(FontWeight::SEMIBOLD)
+                                                    .text_color(rgb(appearance::TEXT))
+                                                    .child(title),
+                                            ),
                                     )
                                     .when(self.manager.demo, |this| {
-                                        this.child(appearance::badge("演示模式", false))
+                                        this.child(appearance::pill("演示环境", Tone::Accent))
                                     }),
                             ),
                     ),
@@ -1664,12 +2091,14 @@ impl Render for Desktop {
             .child(content)
     }
 }
+
 fn option(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1))
         .cloned()
 }
+
 fn main() {
     let started = Instant::now();
     let args: Vec<String> = std::env::args().collect();
@@ -1732,11 +2161,11 @@ fn main() {
             gpui_kit::init(cx);
             appearance::init(cx);
             let options = WindowOptions {
-                window_bounds: Some(WindowBounds::centered(size(px(1040.), px(780.)), cx)),
-                window_min_size: Some(size(px(800.), px(600.))),
+                window_bounds: Some(WindowBounds::centered(size(px(960.), px(720.)), cx)),
+                window_min_size: Some(size(px(760.), px(560.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Agent Safeguard".into()),
-                    traffic_light_position: Some(point(px(16.), px(19.))),
+                    traffic_light_position: Some(point(px(16.), px(17.))),
                     ..TitleBar::title_bar_options()
                 }),
                 ..TitleBar::window_options()

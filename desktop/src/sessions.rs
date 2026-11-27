@@ -1,4 +1,5 @@
 use crate::backend::{Manager, Result, safe_label};
+use chrono::{DateTime, Datelike, Local, Timelike};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -11,13 +12,30 @@ pub fn now() -> u64 {
         .unwrap_or_default()
         .as_millis() as u64
 }
-pub fn updated_label(updated_at: u64, time: u64) -> String {
-    let seconds = time.saturating_sub(updated_at) / 1000;
-    match seconds {
-        0..=59 => format!("{seconds} 秒前更新"),
-        60..=3599 => format!("{} 分钟前更新", seconds / 60),
-        3600..=86399 => format!("{} 小时前更新", seconds / 3600),
-        _ => format!("{} 天前更新", seconds / 86400),
+pub fn format_timestamp(ts_ms: u64, now_ms: u64) -> String {
+    let Some(utc) = DateTime::from_timestamp_millis(ts_ms as i64) else {
+        return String::new();
+    };
+    let dt = utc.with_timezone(&Local);
+    let now_dt = DateTime::from_timestamp_millis(now_ms as i64)
+        .map(|u| u.with_timezone(&Local))
+        .unwrap_or(dt);
+    let date = dt.date_naive();
+    let today = now_dt.date_naive();
+    if date == today {
+        format!("今天 {:02}:{:02}", dt.hour(), dt.minute())
+    } else if date.succ_opt() == Some(today) {
+        format!("昨天 {:02}:{:02}", dt.hour(), dt.minute())
+    } else if dt.year() == now_dt.year() {
+        format!(
+            "{:02}-{:02} {:02}:{:02}",
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute()
+        )
+    } else {
+        format!("{:04}-{:02}-{:02}", dt.year(), dt.month(), dt.day())
     }
 }
 #[derive(Clone, Default, Deserialize, Serialize)]
@@ -43,24 +61,78 @@ impl Identity {
             .all(|s| valid_text(s, 160))
             && valid_text(&self.project, 512)
     }
-    pub fn title(&self) -> &str {
-        self.title
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("未命名会话")
+    pub fn raw_title(&self) -> Option<&str> {
+        self.title.as_deref().map(str::trim).filter(|s| !s.is_empty())
     }
-    pub fn project_name(&self) -> &str {
+    pub fn raw_project_name(&self) -> Option<&str> {
         self.project
             .as_deref()
             .and_then(|s| s.trim_end_matches(['/', '\\']).rsplit(['/', '\\']).next())
             .filter(|s| !s.is_empty())
-            .unwrap_or("项目未提供")
     }
-    pub fn agent_name(&self) -> String {
-        match self.agent_type.as_deref().filter(|s| !s.is_empty()) {
-            Some(kind) => format!("Claude Code · {kind}"),
-            None => "Claude Code".into(),
+    #[cfg(test)]
+    pub fn project_name(&self) -> &str {
+        self.raw_project_name().unwrap_or("项目未提供")
+    }
+    pub fn short_path(&self) -> Option<String> {
+        let raw = self.project.as_deref()?.trim();
+        if raw.is_empty() {
+            return None;
         }
+        if let Some(home) = dirs::home_dir().and_then(|p| p.to_str().map(str::to_owned)) {
+            let trimmed_home = home.trim_end_matches(['/', '\\']);
+            if raw == trimmed_home {
+                return Some("~".into());
+            }
+            if let Some(rest) = raw.strip_prefix(trimmed_home) {
+                if rest.starts_with('/') || rest.starts_with('\\') {
+                    return Some(format!("~{rest}"));
+                }
+            }
+        }
+        Some(raw.to_owned())
+    }
+    pub fn short_id(&self) -> Option<&str> {
+        self.host_session_id
+            .as_deref()
+            .filter(|s| s.len() >= 6)
+            .map(|s| &s[..6])
+    }
+    pub fn active_headline(&self, duplicate_project: bool) -> String {
+        if let Some(title) = self.raw_title() {
+            return title.to_owned();
+        }
+        if let Some(proj) = self.raw_project_name() {
+            if duplicate_project {
+                if let Some(id) = self.short_id() {
+                    return format!("{proj}  #{id}");
+                }
+            }
+            return proj.to_owned();
+        }
+        if let Some(id) = self.short_id() {
+            return format!("会话 #{id}");
+        }
+        "当前会话".into()
+    }
+    pub fn active_subline(&self) -> String {
+        let mut parts = Vec::new();
+        if self.raw_title().is_some() {
+            if let Some(path) = self.short_path() {
+                parts.push(path);
+            }
+        } else if let Some(path) = self.short_path() {
+            if self.raw_project_name() != Some(path.as_str()) {
+                parts.push(path);
+            }
+        }
+        if let Some(kind) = self.agent_type.as_deref().filter(|s| !s.is_empty()) {
+            parts.push(format!("子代理 {kind}"));
+        }
+        if let Some(model) = self.model.as_deref().filter(|s| !s.is_empty()) {
+            parts.push(model.to_owned());
+        }
+        parts.join("  ·  ")
     }
 }
 fn valid_text(value: &Option<String>, max: usize) -> bool {
@@ -87,6 +159,7 @@ impl Location {
             && ["token", "password", "device", "hostname", "computer"]
                 .contains(&self.field.as_str())
     }
+    #[cfg(test)]
     fn label(&self) -> String {
         format!(
             " · 扫描文本 {} 的第 {} 行 · {} 字段（非源文件行号）",
@@ -178,6 +251,7 @@ fn valid_reason(reason: &str) -> bool {
         "redaction.unsupported",
         "redaction.residual",
         "redaction.unsupported-result",
+        "redaction.placeholder-input",
     ]
     .contains(&reason)
 }
@@ -233,6 +307,7 @@ impl Diagnostic {
                     })
             })
     }
+    #[cfg(test)]
     fn action_label(&self) -> &'static str {
         match self.next_action.as_str() {
             "restart" => "重启插件实例或新建会话",
@@ -346,6 +421,10 @@ impl Session {
     pub fn blocked_at(&self) -> u64 {
         self.interception.as_ref().map(|e| e.at).unwrap_or(0)
     }
+    pub fn effective_time(&self) -> u64 {
+        let b = self.blocked_at();
+        if b > 0 { b } else { self.updated_at }
+    }
     pub fn display_identity(&self, history: bool) -> &Identity {
         if history {
             self.interception
@@ -362,6 +441,17 @@ impl Session {
             .and_then(|e| e.rule_id.as_deref())
             .or(self.last_rule.as_deref())
     }
+    pub fn reason_code(&self) -> Option<&str> {
+        self.interception
+            .as_ref()
+            .and_then(|e| e.reason.as_deref())
+            .or_else(|| {
+                self.diagnostic
+                    .as_ref()
+                    .and_then(|d| d.cause.as_ref())
+                    .map(|c| c.reason.as_str())
+            })
+    }
     pub fn event_name(&self) -> &str {
         self.interception
             .as_ref()
@@ -369,23 +459,118 @@ impl Session {
             .or(self.last_event.as_deref())
             .unwrap_or("")
     }
+    pub fn tool_name(&self) -> Option<&str> {
+        self.interception
+            .as_ref()
+            .and_then(|e| e.tool.as_deref())
+            .or_else(|| {
+                self.diagnostic
+                    .as_ref()
+                    .and_then(|d| d.cause.as_ref())
+                    .and_then(|c| c.tool.as_deref())
+            })
+    }
     pub fn history_key(&self) -> String {
         self.interception
             .as_ref()
             .and_then(|e| e.record_id.clone())
             .unwrap_or_else(|| self.session.clone())
     }
-    pub fn recovery_label(&self) -> String {
-        self.recovery
-            .as_ref()
-            .map(|r| {
-                format!(
-                    "已脱敏 {} 次 · 已替换 {} 处 · 暂停 {} 次 · 恢复 {} 次",
-                    r.redacted_results, r.replacements, r.pauses, r.resumes
-                )
-            })
-            .unwrap_or_default()
+    pub fn effect_summary(&self) -> String {
+        let tool = self.tool_name();
+        match self.event_name() {
+            "tool.result" => match tool {
+                Some(t) => format!("已扣留 {t} 输出"),
+                None => "已扣留工具输出".into(),
+            },
+            "tool.input" => match tool {
+                Some(t) => format!("已拒绝执行 {t}"),
+                None => "已拒绝执行工具".into(),
+            },
+            "user.prompt" | "prompt.submit" => "已拦截消息发送".into(),
+            "session.compact" => "已跳过上下文压缩".into(),
+            "prompt.context" | "prompt.section" | "prompt.attachment" => "已扣留上下文".into(),
+            "session.start" => "启动自检未通过".into(),
+            "tool.call" | "agent.spawn" => "调用异常已中止".into(),
+            _ => "已拦截".into(),
+        }
     }
+    pub fn concise_reason(&self) -> Option<&'static str> {
+        let field = self
+            .interception
+            .as_ref()
+            .and_then(|e| e.location.as_ref())
+            .map(|l| l.field.as_str());
+        match self.reason_code()? {
+            "url-password" => Some("连接串含明文密码"),
+            "private-key" => Some("含私钥块"),
+            "token-format" => Some("平台 API Token"),
+            "authorization-value" => Some("认证头凭据"),
+            "mac-format" => Some("网卡 MAC 地址"),
+            "redaction.unsupported" | "redaction.unsupported-result" => {
+                Some("含代码结构未直接替换")
+            }
+            "redaction.placeholder-input" => Some("阻止写回脱敏代号"),
+            "inspection.timeout" => Some("超出 100ms 扫描预算"),
+            "inspection.text-limit" => Some("输出超过 4 MiB 上限"),
+            "inspection.unsupported" => Some("未支持的二进制内容"),
+            _ => match field {
+                Some("password") => Some("password 字段"),
+                Some("token") => Some("token 字段"),
+                Some("device") => Some("硬件 ID 字段"),
+                Some("hostname" | "computer") => Some("主机名字段"),
+                _ => None,
+            },
+        }
+    }
+    pub fn concise_next_step(&self, time: u64) -> &'static str {
+        if !self.fresh(time) {
+            return "请在原终端检查会话状态";
+        }
+        if let Some(d) = &self.diagnostic {
+            return match d.next_action.as_str() {
+                "safe-message" | "safe-message-probe" => "在原终端发送一条新消息即可继续",
+                "wait-work" | "wait-submission" => "等待当前工具结束后发新消息继续",
+                "health-check" => "在原终端运行 /agent-safeguard-check 后继续",
+                "fix-context-restart" | "restart" => "请新建会话继续",
+                _ => "在原终端查看插件状态",
+            };
+        }
+        if self.recovery.as_ref().is_some_and(|r| r.can_resume) {
+            "在原终端发送一条新消息即可继续"
+        } else {
+            "请新建会话继续"
+        }
+    }
+    pub fn anomaly_context(&self) -> String {
+        let ident = self.display_identity(true);
+        let mut parts = Vec::new();
+        if let Some(proj) = ident.raw_project_name() {
+            if let Some(path) = ident.short_path() {
+                if path != proj {
+                    parts.push(format!("{proj} ({path})"));
+                } else {
+                    parts.push(proj.to_owned());
+                }
+            } else {
+                parts.push(proj.to_owned());
+            }
+        } else if let Some(path) = ident.short_path() {
+            parts.push(path);
+        }
+        if let Some(title) = ident.raw_title() {
+            parts.push(format!("「{title}」"));
+        }
+        if let Some(e) = &self.interception {
+            if let Some(kind) = e.agent_type.as_deref().filter(|s| !s.is_empty()) {
+                parts.push(format!("子代理 {kind}"));
+            } else if e.agent_id.is_some() {
+                parts.push("子代理".into());
+            }
+        }
+        parts.join("  ·  ")
+    }
+    #[cfg(test)]
     pub fn recovery_advice_at(&self, time: u64, live: bool) -> String {
         if !live {
             return "这是历史拦截记录；请在原会话查看当前状态。".into();
@@ -404,6 +589,7 @@ impl Session {
         }
         "当前版本未提供详细恢复建议；请在原会话查看插件状态。".into()
     }
+    #[cfg(test)]
     pub fn diagnostic_label(&self) -> String {
         self.diagnostic
             .as_ref()
@@ -418,21 +604,28 @@ impl Session {
             })
             .unwrap_or_default()
     }
+    #[cfg(test)]
     pub fn reason_label(&self) -> String {
         self.interception
             .as_ref()
             .and_then(|e| e.reason.as_deref())
             .map(|r| {
                 let hint = match r {
-                    "url-password" => "URL 含密码；示例域名不会豁免凭据",
-                    "inspection.timeout" => "本地扫描超时，结果未放行",
-                    "inspection.text-limit" => "输出超过文本扫描上限",
-                    "inspection.unsupported" => "当前策略拒绝未支持的内容",
-                    "redaction.unsupported-result" => "此返回结构不支持安全替换",
-                    _ if self.matched_rule() == Some("identity.device") => {
-                        "设备标识未满足豁免条件；截断记录不能确认模拟器平台"
+                    "url-password" => "连接地址中含有明文密码",
+                    "private-key" => "包含私钥块头标记",
+                    "token-format" => "匹配已知平台密钥格式",
+                    "mac-format" => "包含物理网卡 MAC 地址",
+                    "inspection.timeout" => "本地扫描超出 100ms 预算，结果安全扣留",
+                    "inspection.text-limit" => "输出超过 4 MiB 扫描上限",
+                    "inspection.unsupported" => "当前策略拒绝未支持的二进制内容",
+                    "redaction.unsupported" | "redaction.unsupported-result" => {
+                        "此输出包含源码或未知字段，改为整份扣留"
                     }
-                    _ => "命中本地检测规则，未记录原始值",
+                    "redaction.placeholder-input" => "阻止将脱敏代号 [IP_n] 写回文件或命令参数",
+                    _ if self.matched_rule() == Some("identity.device") => {
+                        "检测到未标记为模拟器的设备标识"
+                    }
+                    _ => "命中本地隐私规则（未记录原始敏感值）",
                 };
                 format!(
                     "原因：{hint}（{r}）{}",
@@ -444,16 +637,6 @@ impl Session {
                 )
             })
             .unwrap_or_default()
-    }
-    pub fn action_label(&self) -> &'static str {
-        match self.event_name() {
-            "tool.input" => "工具未执行，输入已拒绝",
-            "tool.result" => "工具已执行，结果已扣留",
-            "user.prompt" | "prompt.submit" => "消息未提交",
-            "prompt.context" | "prompt.section" | "prompt.attachment" => "已扣留上下文",
-            "tool.call" | "agent.spawn" => "处理异常，执行状态未确认",
-            _ => "插件已阻断",
-        }
     }
 
     pub fn connection_state(&self, time: u64) -> ConnectionState {
@@ -474,6 +657,7 @@ impl Session {
             ConnectionState::Initializing
         }
     }
+    #[cfg(test)]
     pub fn connection_label(&self, time: u64) -> &'static str {
         if self.connection_state(time) == ConnectionState::Attention && !self.fresh(time) {
             if self
@@ -596,6 +780,7 @@ impl Session {
     pub fn fresh(&self, time: u64) -> bool {
         self.updated_at <= time + 5000 && time.saturating_sub(self.updated_at) <= 45000
     }
+    #[cfg(test)]
     pub fn state(&self, time: u64) -> &'static str {
         if self.ended {
             "已结束"

@@ -74,6 +74,7 @@ function duplicateKeys(s){
  }
  return false;
 }
+const malformedJson=/^\s*(?:\{|\[\s*(?:["{\[]|-?\d+(?:\.\d+)?\s*(?:,|\]|$)|(?:true|false|null)\b))/;
 export function transformIPs(value,{matches,limits,deadline,labels}){
  let bytes=0,nodes=0,count=0;const seen=new Set();
  const budget=()=>{if(Date.now()>deadline)throw Error('inspection.timeout');};
@@ -82,12 +83,11 @@ export function transformIPs(value,{matches,limits,deadline,labels}){
   if(decode<limits.maxNestedJsonDecodes&&/^\s*[\[{"]/.test(s)){
    let parsed,valid=false;try{parsed=JSON.parse(s);valid=true;}catch{}
    if(valid){if(duplicateKeys(s))throw Error('redaction.ambiguous-json');const before=count;const result=visit(parsed,depth+1,decode+1,key,true);return count===before?s:JSON.stringify(result);}
-   // A placeholder is plain text; malformed JSON-like data is not.
-   if(/^\s*[\[{]/.test(s)&&!/^\s*\[(?:IP_\d+|Agent Safeguard)\]/.test(s))throw Error('redaction.unsupported');
   }
   const n=/\\u[0-9a-f]{4}|\x1b\[/i.test(s)?normalized(s):null,t=n?.text??s;const spans=[];
   for(const m of ipMatches(t)){budget();if(matches(m.ip)){if(key)throw Error('redaction.sensitive-key');spans.push(m);if(spans.length>10000)throw Error('redaction.match-limit');}}
   if(!spans.length)return s;
+  if(decode<limits.maxNestedJsonDecodes&&malformedJson.test(s))throw Error('redaction.unsupported');
   if(!redactableText(t,spans,structured,budget))throw Error('redaction.unsupported');
   count+=spans.length;let out='',at=0;
   for(const m of spans){
